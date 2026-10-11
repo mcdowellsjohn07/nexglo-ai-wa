@@ -26,17 +26,20 @@ CREATE TABLE IF NOT EXISTS processed_messages (
 -- the in-progress draft (JSON), whether a human has taken over, whether they
 -- opted out (BAJA/STOP), and when they last wrote to us (24-hour window).
 CREATE TABLE IF NOT EXISTS conversations (
-    wa_id        TEXT PRIMARY KEY,
-    state        TEXT NOT NULL DEFAULT 'idle',
-    lang         TEXT NOT NULL DEFAULT 'es',
-    draft        TEXT NOT NULL DEFAULT '{}',
-    handoff      INTEGER NOT NULL DEFAULT 0,
-    profile_name TEXT,
-    opted_out    INTEGER NOT NULL DEFAULT 0,
-    opted_out_at TEXT,
-    last_user_at TEXT,
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    wa_id                TEXT PRIMARY KEY,
+    state                TEXT NOT NULL DEFAULT 'idle',
+    lang                 TEXT NOT NULL DEFAULT 'en',
+    draft                TEXT NOT NULL DEFAULT '{}',
+    handoff              INTEGER NOT NULL DEFAULT 0,
+    profile_name         TEXT,
+    opted_out            INTEGER NOT NULL DEFAULT 0,
+    opted_out_at         TEXT,
+    last_user_at         TEXT,
+    is_existing_customer INTEGER NOT NULL DEFAULT 0,
+    customer_id          TEXT,
+    lead_id              TEXT,
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Full conversation transcript, used for LLM context and the staff console.

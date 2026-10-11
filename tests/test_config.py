@@ -40,6 +40,6 @@ def test_from_env_defaults_and_overrides(tmp_path):
     s = Settings.from_env({"BUSINESS_NAME": "  Salon Uno  ", "DB_PATH": str(tmp_path / "x.sqlite"), "ADMIN_TOKEN": ""})
     assert s.business_name == "Salon Uno"
     assert s.db_path == Path(tmp_path / "x.sqlite")
-    assert s.timezone == "America/Panama"
+    assert s.timezone == "Africa/Freetown"  # NexgloTV default
     assert s.admin_enabled is False
     assert Settings.from_env({"ADMIN_TOKEN": "s3cret-token"}).admin_enabled is True

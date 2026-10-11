@@ -5,7 +5,7 @@ client and agent from a ``Settings`` object. Nothing is built at import time:
 the FastAPI app creates its services on startup (or on the first request), and
 tests or the chat simulator build their own with a temp database, a fake
 WhatsApp client and a frozen clock. Importing ``app.webhook`` or ``app.main``
-therefore never creates ``data/bookings.sqlite`` as a side effect.
+therefore never creates ``data/nexglotv.sqlite`` as a side effect.
 """
 
 from __future__ import annotations
@@ -18,15 +18,17 @@ from typing import Optional
 
 import httpx
 
-from .agent import Agent
 from .clock import Clock, system_clock
 from .config import Settings, get_settings
+from .crm_sheets import CRMService, create_crm_provider
 from .kb import KnowledgeBase
 from .llm import LLMClient
-from .state import Store
+from .media_service import MediaService
+from .nexglo_agent import Agent
+from .nexglo_state import Store
 from .wa_client import DryRunTransport, Transport, WhatsAppClient
 
-log = logging.getLogger("whatsapp_agent.deps")
+log = logging.getLogger("nexglo.deps")
 
 
 @dataclass
@@ -37,6 +39,8 @@ class Services:
     llm: LLMClient
     wa: WhatsAppClient
     agent: Agent
+    crm: CRMService
+    media: MediaService
     clock: Clock
 
 
@@ -56,12 +60,65 @@ def build_services(
     store = Store(db_path or settings.db_path, settings.schema_path, clock=clock)
     kb = KnowledgeBase(settings.kb_dir)
     llm = llm if llm is not None else LLMClient(settings)
+
+    # CRM provider
+    crm_provider_name = getattr(settings, "crm_provider", "mock")
+    crm_provider = None
+    if crm_provider_name == "lark_base":
+        try:
+            from .crm_lark import create_lark_provider
+            crm_provider = create_lark_provider(
+                base_token=getattr(settings, "lark_base_token", ""),
+                auto_create=True,
+            )
+            log.info("CRM provider: Lark Base (%s)", getattr(crm_provider, "base_token", "?"))
+        except Exception as exc:
+            log.warning("Lark Base CRM unavailable (%s); falling back to mock", exc)
+            crm_provider = None
+    if crm_provider is None:
+        crm_provider = create_crm_provider(
+            provider=crm_provider_name,
+            sheet_id=getattr(settings, "google_sheet_id", ""),
+            service_account_json=getattr(settings, "google_service_account_json", ""),
+        )
+    crm = CRMService(crm_provider)
+
+    # Media service
+    media = MediaService(
+        wa=None,  # Will be set after wa is created
+        price_card_media_url=getattr(settings, "price_card_media_url", ""),
+        price_card_media_id=getattr(settings, "price_card_media_id", ""),
+    )
+
     if wa is None:
         if transport is None and settings.dry_run:
             transport = DryRunTransport(store)
         wa = WhatsAppClient(settings, transport=transport, http_client=http_client)
-    agent = Agent(settings=settings, wa=wa, store=store, kb=kb, llm=llm, clock=clock)
-    return Services(settings=settings, store=store, kb=kb, llm=llm, wa=wa, agent=agent, clock=clock)
+
+    # Update media with wa client
+    media.wa = wa
+
+    agent = Agent(
+        settings=settings,
+        wa=wa,
+        store=store,
+        kb=kb,
+        llm=llm,
+        crm=crm,
+        media=media,
+        clock=clock,
+    )
+    return Services(
+        settings=settings,
+        store=store,
+        kb=kb,
+        llm=llm,
+        wa=wa,
+        agent=agent,
+        crm=crm,
+        media=media,
+        clock=clock,
+    )
 
 
 # --------------------------------------------------------------- default app
@@ -82,6 +139,6 @@ def default_services() -> Services:
 def __getattr__(name: str):
     # Backwards compatibility with the old module-level singletons
     # (``from app.deps import agent, store``), now built lazily.
-    if name in {"settings", "store", "kb", "llm", "wa", "agent"}:
+    if name in {"settings", "store", "kb", "llm", "wa", "agent", "crm", "media"}:
         return getattr(default_services(), name)
     raise AttributeError(name)

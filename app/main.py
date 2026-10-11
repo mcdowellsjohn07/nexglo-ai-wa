@@ -1,4 +1,4 @@
-"""FastAPI application entrypoint.
+"""FastAPI application entrypoint for NexgloTV.
 
 Run locally:
     uvicorn app.main:app --reload --port 8000
@@ -27,7 +27,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
-log = logging.getLogger("whatsapp_agent.main")
+log = logging.getLogger("nexglo.main")
 
 
 def create_app(services: Optional[Services] = None, settings: Optional[Settings] = None) -> FastAPI:
@@ -55,9 +55,9 @@ def create_app(services: Optional[Services] = None, settings: Optional[Settings]
         yield
 
     app = FastAPI(
-        title="WhatsApp AI Agent",
+        title="NexgloTV WhatsApp AI Agent",
         version=__version__,
-        description="Bilingual WhatsApp Business assistant on the Meta Cloud API.",
+        description="WhatsApp Business assistant for NexgloTV subscriptions on the Meta Cloud API.",
         lifespan=lifespan,
     )
     app.state.get_services = get_services
@@ -79,7 +79,7 @@ def create_app(services: Optional[Services] = None, settings: Optional[Settings]
         return {
             "status": "ok",
             "business": s.business_name,
-            "llm": "nim" if s.llm_configured else "offline",
+            "llm": f"{s.llm_provider}" if s.llm_configured else "offline",
             "whatsapp": "dry_run" if s.dry_run else "live",
             "dry_run": s.dry_run,
             "signature_verification": s.signature_enforced,
@@ -89,7 +89,7 @@ def create_app(services: Optional[Services] = None, settings: Optional[Settings]
     @app.get("/")
     async def root() -> dict:
         links = {
-            "name": "whatsapp-ai-agent",
+            "name": "nexglotv-whatsapp-agent",
             "webhook": "/webhook",
             "health": "/health",
             "admin": "/admin/handoffs",

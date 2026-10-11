@@ -39,6 +39,10 @@ _ADDED_COLUMNS: list[tuple[str, str, str]] = [
     ("bookings", "updated_at", "updated_at TEXT"),
     ("handoffs", "resolved_at", "resolved_at TEXT"),
     ("handoffs", "resolved_by", "resolved_by TEXT"),
+    # NexgloTV additions
+    ("conversations", "is_existing_customer", "is_existing_customer INTEGER NOT NULL DEFAULT 0"),
+    ("conversations", "customer_id", "customer_id TEXT"),
+    ("conversations", "lead_id", "lead_id TEXT"),
 ]
 
 

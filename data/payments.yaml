@@ -1,0 +1,27 @@
+payments:
+  orange_money:
+    method: orange_money
+    number: null
+    account_name: null
+    is_verified: false
+  afrimoney:
+    method: afrimoney
+    number: null
+    account_name: null
+    is_verified: false
+  qmoney:
+    method: qmoney
+    number: null
+    account_name: null
+    is_verified: false
+  bank_transfer:
+    method: bank_transfer
+    bank_name: null
+    account_name: null
+    account_number: null
+    is_verified: false
+  cash:
+    method: cash
+    approved_location: null
+    receipt_procedure: null
+    is_verified: false

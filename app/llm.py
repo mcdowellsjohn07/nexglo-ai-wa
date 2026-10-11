@@ -1,7 +1,7 @@
-"""LLM client for NVIDIA NIM (OpenAI-compatible endpoint).
+"""LLM client for OpenRouter (OpenAI-compatible) and NVIDIA NIM (legacy).
 
-Free API key: sign up at https://build.nvidia.com and create a key that starts
-with ``nvapi-`` (takes ~2 minutes). Set it as NVIDIA_API_KEY.
+Free API key: sign up at https://openrouter.ai and create a key.
+Set OPENROUTER_API_KEY and OPENROUTER_MODEL.
 
 The agent degrades gracefully when no key is configured: intent routing falls
 back to keywords and FAQ answers return the top knowledge-base snippet verbatim.
@@ -14,30 +14,48 @@ from typing import Optional
 
 from .config import Settings
 
-log = logging.getLogger("whatsapp_agent.llm")
+log = logging.getLogger("nexglo.llm")
 
 
 class LLMClient:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._client = None
+        self._model = ""
+
         if settings.llm_configured:
             try:
                 from openai import OpenAI
 
-                self._client = OpenAI(
-                    base_url=settings.nim_base_url,
-                    api_key=settings.nvidia_api_key,
-                    timeout=30.0,
-                )
+                if settings.llm_provider == "openrouter":
+                    self._client = OpenAI(
+                        base_url=settings.openrouter_base_url,
+                        api_key=settings.openrouter_api_key,
+                        timeout=settings.openrouter_timeout_seconds,
+                    )
+                    self._model = settings.openrouter_model
+                    # OpenRouter recommended headers
+                    self._extra_headers = {
+                        "HTTP-Referer": "https://nexglotv.com",
+                        "X-Title": "NexgloTV WhatsApp Agent",
+                    }
+                else:
+                    # Legacy NVIDIA NIM
+                    self._client = OpenAI(
+                        base_url=settings.nim_base_url,
+                        api_key=settings.nvidia_api_key,
+                        timeout=30.0,
+                    )
+                    self._model = settings.nim_model
+                    self._extra_headers = {}
+
             except Exception as exc:  # pragma: no cover - import/config failure
-                log.warning("Could not initialise NIM client: %s", exc)
+                log.warning("Could not initialise LLM client: %s", exc)
                 self._client = None
         else:
             log.warning(
-                "NVIDIA_API_KEY not set. Running in offline mode "
-                "(keyword routing + raw KB answers). Get a free key at "
-                "https://build.nvidia.com"
+                "LLM API key not set. Running in offline mode "
+                "(keyword routing + raw KB answers)."
             )
 
     @property
@@ -54,14 +72,19 @@ class LLMClient:
         if self._client is None:
             return None
         try:
-            resp = self._client.chat.completions.create(
-                model=self.settings.nim_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            # Build kwargs
+            kwargs = {
+                "model": self._model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": min(max_tokens, self.settings.openrouter_max_output_tokens),
+            }
+            if self._extra_headers:
+                kwargs["extra_headers"] = self._extra_headers
+
+            resp = self._client.chat.completions.create(**kwargs)
             content = resp.choices[0].message.content
             return content.strip() if content else None
         except Exception as exc:
-            log.warning("NIM request failed: %s", exc)
+            log.warning("LLM request failed: %s", exc)
             return None

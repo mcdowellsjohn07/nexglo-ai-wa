@@ -25,7 +25,10 @@ DATA_DIR = BASE_DIR / "data"
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
-# Exact placeholder strings shipped in .env.example / older docs.
+# Exact placeholder strings shipped in ``.env.example`` (``EAAG_XXX...``,
+# ``000000000000000``, ``nvapi-XXX...``) are treated as *not configured*: the app
+# then runs in **dry-run mode**, where outbound WhatsApp messages are written to a
+# local outbox table instead of being POSTed to graph.facebook.com.
 _PLACEHOLDERS = {"change-me", "choose-a-long-random-string", "your-token-here"}
 
 
@@ -67,22 +70,45 @@ class Settings:
     # None = automatic (dry-run whenever WhatsApp is not configured).
     dry_run_flag: Optional[bool] = None
 
-    # --- LLM (NVIDIA NIM, OpenAI-compatible) ---
+    # --- LLM (OpenRouter, OpenAI-compatible) ---
+    llm_provider: str = "openrouter"
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = ""
+    openrouter_timeout_seconds: int = 25
+    openrouter_max_output_tokens: int = 500
+
+    # Legacy NVIDIA NIM (kept for backwards compatibility)
     nvidia_api_key: str = ""
     nim_base_url: str = "https://integrate.api.nvidia.com/v1"
     nim_model: str = "meta/llama-3.3-70b-instruct"
 
-    # --- Business profile (drives the booking flow and the LLM prompt) ---
-    business_name: str = "Barbería Studio Norte"
-    business_phone: str = "+507 6000-0000"
-    business_description: str = "a barbershop in Panama City"
-    timezone: str = "America/Panama"
+    # --- Business profile ---
+    business_name: str = "NexgloTV"
+    business_phone: str = ""
+    business_description: str = "Internet-based television and entertainment service in Sierra Leone"
+    timezone: str = "Africa/Freetown"
+    currency_label: str = "Le"
 
     # --- Staff console ---
     admin_token: str = ""
 
     # --- Local audio transcription (optional) ---
     whisper_model: str = "base"
+
+    # --- CRM ---
+    crm_provider: str = "mock"
+    google_sheet_id: str = ""
+    google_service_account_json: str = ""
+    lark_base_token: str = ""
+
+    # --- Media ---
+    price_card_media_url: str = ""
+    price_card_media_id: str = ""
+
+    # --- Payment config ---
+    discount_percent: int = 20
+    discount_active: bool = True
 
     # --- Paths ---
     kb_dir: Path = KB_DIR
@@ -108,15 +134,30 @@ class Settings:
             app_secret=get("WHATSAPP_APP_SECRET"),
             graph_api_version=get("GRAPH_API_VERSION", "v21.0"),
             dry_run_flag=_parse_bool(env.get("WHATSAPP_DRY_RUN")),
+            llm_provider=get("LLM_PROVIDER", "openrouter"),
+            openrouter_api_key=get("OPENROUTER_API_KEY"),
+            openrouter_base_url=get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            openrouter_model=get("OPENROUTER_MODEL"),
+            openrouter_timeout_seconds=int(get("OPENROUTER_TIMEOUT_SECONDS", "25")),
+            openrouter_max_output_tokens=int(get("OPENROUTER_MAX_OUTPUT_TOKENS", "500")),
             nvidia_api_key=get("NVIDIA_API_KEY"),
             nim_base_url=get("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
             nim_model=get("NIM_MODEL", "meta/llama-3.3-70b-instruct"),
-            business_name=get("BUSINESS_NAME", "Barbería Studio Norte"),
-            business_phone=get("BUSINESS_PHONE", "+507 6000-0000"),
-            business_description=get("BUSINESS_DESCRIPTION", "a barbershop in Panama City"),
-            timezone=get("BUSINESS_TIMEZONE", "America/Panama"),
+            business_name=get("BUSINESS_NAME", "NexgloTV"),
+            business_phone=get("BUSINESS_PHONE"),
+            business_description=get("BUSINESS_DESCRIPTION", "Internet-based television and entertainment service in Sierra Leone"),
+            timezone=get("BUSINESS_TIMEZONE", "Africa/Freetown"),
+            currency_label=get("CURRENCY_LABEL", "Le"),
             admin_token=get("ADMIN_TOKEN"),
             whisper_model=get("WHISPER_MODEL", "base"),
+            crm_provider=get("CRM_PROVIDER", "mock"),
+            google_sheet_id=get("GOOGLE_SHEET_ID"),
+            google_service_account_json=get("GOOGLE_SERVICE_ACCOUNT_JSON"),
+            lark_base_token=get("LARK_BASE_TOKEN"),
+            price_card_media_url=get("PRICE_CARD_MEDIA_URL"),
+            price_card_media_id=get("PRICE_CARD_MEDIA_ID"),
+            discount_percent=int(get("DISCOUNT_PERCENT", "20")),
+            discount_active=_parse_bool(get("DISCOUNT_ACTIVE")) or True,
             db_path_override=Path(db_path) if db_path else None,
         )
 
@@ -131,7 +172,7 @@ class Settings:
 
     @property
     def db_path(self) -> Path:
-        return self.db_path_override or self.data_dir / "bookings.sqlite"
+        return self.db_path_override or self.data_dir / "nexglotv.sqlite"
 
     @property
     def schema_path(self) -> Path:
@@ -156,6 +197,8 @@ class Settings:
 
     @property
     def llm_configured(self) -> bool:
+        if self.llm_provider == "openrouter":
+            return not is_placeholder(self.openrouter_api_key)
         return not is_placeholder(self.nvidia_api_key)
 
     @property
