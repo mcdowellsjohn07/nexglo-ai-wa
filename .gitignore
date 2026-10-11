@@ -32,3 +32,5 @@ models/
 Thumbs.db
 logs/
 *.log
+*.png
+lark_*_qr.png
