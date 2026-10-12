@@ -33,10 +33,13 @@ from .crm_sheets import (
     TrialRecord,
 )
 from .nexglo_lark_schema import (
+    FIELD_SCHEMAS,
+    LINK_FIELDS,
+    LINKS,
     SEED_PACKAGES,
     TABLE_KEY_FIELD,
-    TABLE_SCHEMAS,
     TABLE_WA_FIELD,
+    map_record,
 )
 
 log = logging.getLogger("nexglo.crm_lark")
@@ -60,14 +63,12 @@ def _digits(phone: str) -> str:
     return re.sub(r"[^\d]", "", str(phone or ""))[-9:]  # last 9 digits
 
 
-def _run_cli(args: list[str], timeout: int = 90) -> dict:
+def _run_cli(args: list[str], timeout: int = 90, confirm: bool = False) -> dict:
     """Run `lark-cli base <args>` and return parsed JSON (ok=True checked).
 
-    Large --json payloads are passed via stdin (@-style is not supported by all
-    subcommands, so we write a temp file and pass @file where needed). Actually
-    lark-cli reads --json from argv; on Windows .cmd shims, argv values with
-    spaces/pipe chars get mangled by cmd.exe. To avoid that we pass the JSON
-    through stdin when the command supports it, else fall back to argv.
+    ``confirm=True`` appends ``--yes`` for high-risk-write commands (field
+    updates). On Windows the .cmd shim mangles argv JSON, so we invoke node
+    against the CLI's run.js directly when available.
     """
     import os
     import shutil
@@ -87,21 +88,20 @@ def _run_cli(args: list[str], timeout: int = 90) -> dict:
                 break
     if not exe:
         raise LarkCLIError("lark-cli not found on PATH")
-    cmd = [exe, "base", *args, "--format", "json", "--as", "user"]
-    stdin_data = None
-    # Route risky (long/special-char) JSON through a temp file using --json @file
-    # when the CLI supports it; otherwise keep argv. lark-cli does not support
-    # @file for --json, so instead we neutralize cmd.exe metacharacters by
-    # using subprocess list args (already safe) — the breakage observed is the
-    # .cmd shim re-quoting. Bypass the shim by calling node directly when possible.
+    final_args = ["base", *args, "--format", "json", "--as", "user"]
+    if confirm:
+        final_args.append("--yes")
+    cmd = [exe, *final_args]
+    # Windows .cmd shims re-quote argv and mangle JSON payloads; bypass the shim
+    # by invoking node against the CLI's run.js entrypoint directly.
     if exe.lower().endswith(".cmd"):
         node_exe = shutil.which("node")
         run_js = Path(exe).parent / "node_modules" / "@larksuite" / "cli" / "scripts" / "run.js"
         if node_exe and run_js.is_file():
-            cmd = [node_exe, str(run_js), "base", *args, "--format", "json", "--as", "user"]
+            cmd = [node_exe, str(run_js), *final_args]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                              stdin=stdin_data, shell=False)
+                              shell=False)
     except FileNotFoundError as exc:
         raise LarkCLIError("lark-cli not found on PATH") from exc
     except subprocess.TimeoutExpired as exc:
@@ -148,7 +148,7 @@ class LarkBaseCRMProvider(CRMProvider):
 
     def _create_base(self) -> None:
         first = "01_Leads"
-        fields = json.dumps(TABLE_SCHEMAS[first], ensure_ascii=False)
+        fields = json.dumps(FIELD_SCHEMAS[first], ensure_ascii=False)
         res = _run_cli([
             "+base-create", "--name", BASE_NAME,
             "--table-name", first, "--fields", fields,
@@ -161,9 +161,10 @@ class LarkBaseCRMProvider(CRMProvider):
         tid = data.get("table_id") or tbl.get("id", "")
         if tid:
             self._table_ids[first] = tid
-        for name, schema in TABLE_SCHEMAS.items():
+        for name, schema in FIELD_SCHEMAS.items():
             if name != first:
                 self._create_table(name, schema)
+        self._create_link_fields()
         log.info("Created Lark Base %r token=%s", BASE_NAME, self.base_token)
 
     def _create_table(self, name: str, schema: list[dict]) -> str:
@@ -183,17 +184,75 @@ class LarkBaseCRMProvider(CRMProvider):
             self._table_ids[name] = tid
         return tid
 
+    def _create_link_fields(self) -> None:
+        """Create the 79 manifest cross-table links as native link fields.
+
+        Runs after every table exists (link targets must exist). Fields whose
+        name collides with an existing text column are skipped — the manifest
+        column keeps its data as text and the link is skipped rather than
+        silently replacing it.
+        """
+        created = skipped = failed = 0
+        for link in LINKS:
+            table, field, target = link["table"], link["field"], link["target"]
+            if table not in self._table_ids or target not in self._table_ids:
+                failed += 1
+                continue
+            try:
+                existing = self._field_exists(table, field)
+                payload = {"name": field, "type": "link", "link_table": target}
+                if existing:
+                    # Convert the existing text column into a link field
+                    res = _run_cli([
+                        "+field-update", "--base-token", self.base_token,
+                        "--table-id", self._table_ids[table],
+                        "--field-id", field,
+                        "--json", json.dumps(payload, ensure_ascii=False),
+                    ], timeout=120, confirm=True)
+                else:
+                    res = _run_cli([
+                        "+field-create", "--base-token", self.base_token,
+                        "--table-id", self._table_ids[table],
+                        "--json", json.dumps(payload, ensure_ascii=False),
+                    ], timeout=120)
+                if res.get("ok", False):
+                    created += 1
+                else:
+                    failed += 1
+                    log.warning("Link field %s.%s rejected: %s", table, field,
+                                str(res)[:200])
+            except LarkCLIError as exc:
+                failed += 1
+                log.warning("Link field %s.%s failed: %s", table, field, exc)
+        log.info("Link fields: created=%d failed=%d", created, failed)
+
+    def _field_exists(self, table: str, field_name: str) -> bool:
+        try:
+            res = _run_cli([
+                "+field-list", "--base-token", self.base_token,
+                "--table-id", self._table_ids[table],
+            ], timeout=60)
+            data = res.get("data") or res
+            items = data.get("fields") or data.get("items") or []
+            return any(f.get("name") == field_name for f in items)
+        except LarkCLIError:
+            return False
+
     def _load_tables(self) -> None:
         res = _run_cli(["+table-list", "--base-token", self.base_token], timeout=60)
         data = res.get("data") or res
         items = data.get("tables") or data.get("items") or []
         for item in items:
             name, tid = item.get("name", ""), item.get("table_id") or item.get("id", "")
-            if name in TABLE_SCHEMAS:
+            if name in FIELD_SCHEMAS:
                 self._table_ids[name] = tid
-        for name, schema in TABLE_SCHEMAS.items():
+        created_any = False
+        for name, schema in FIELD_SCHEMAS.items():
             if name not in self._table_ids:
                 self._create_table(name, schema)
+                created_any = True
+        if created_any:
+            self._create_link_fields()
 
     def _table_id(self, name: str) -> str:
         tid = self._table_ids.get(name)
@@ -308,6 +367,7 @@ class LarkBaseCRMProvider(CRMProvider):
         tid = self._table_id(table)
         key = TABLE_KEY_FIELD[table]
         fields = self._ensure_ids(table, fields)
+        fields = map_record(table, fields)  # bot enums -> manifest option labels
         key_value = str(fields.get(key, ""))
         if not key_value:
             return False, ""
@@ -339,6 +399,7 @@ class LarkBaseCRMProvider(CRMProvider):
     def _append(self, table: str, fields: dict) -> bool:
         tid = self._table_id(table)
         fields = self._ensure_ids(table, fields)
+        fields = map_record(table, fields)  # bot enums -> manifest option labels
         fields = {k: v for k, v in fields.items() if v is not None}
         try:
             res = _run_cli(["+record-batch-create", "--base-token", self.base_token,

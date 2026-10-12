@@ -1,21 +1,34 @@
-"""NexgloTV Lark Base (Bitable) field schemas — 18 tables.
+"""NexgloTV Lark Base field schemas — exact manifest implementation.
 
-Source of truth: NexgloTV_Lark_CRM_Import_18_Tables.xlsx (owner-provided).
-Field JSON uses Lark's native +table-create / +field-create format.
+Source of truth: NexgloTV_Lark_CRM_Field_Manifest.json (owner-provided).
+- FIELD_SCHEMAS: non-link fields, exact types/options. Phone/Email/URL are text
+  fields with style.type (per Lark field-schema guide).
+- LINKS: the 79 cross-table relations -> native Lark link fields, created after
+  all tables exist (text->link conversion is blacklisted by the API).
+- VALUE_MAPS: bot-internal enum -> manifest option label translation.
 """
 
 from __future__ import annotations
 
 
-def _text(name: str, desc: str = "") -> dict:
-    d = {"name": name, "type": "text"}
-    if desc:
-        d["description"] = desc
-    return d
+def _text(name: str) -> dict:
+    return {"name": name, "type": "text"}
 
 
-def _number(name: str, precision: int = 0) -> dict:
-    return {"name": name, "type": "number", "style": {"type": "plain", "precision": precision}}
+def _phone(name: str) -> dict:
+    return {"name": name, "type": "text", "style": {"type": "phone"}}
+
+
+def _email(name: str) -> dict:
+    return {"name": name, "type": "text", "style": {"type": "email"}}
+
+
+def _url(name: str) -> dict:
+    return {"name": name, "type": "text", "style": {"type": "url"}}
+
+
+def _number(name: str) -> dict:
+    return {"name": name, "type": "number", "style": {"type": "plain", "precision": 0}}
 
 
 def _select(name: str, options: list[str]) -> dict:
@@ -27,58 +40,138 @@ def _datetime(name: str) -> dict:
     return {"name": name, "type": "datetime"}
 
 
+def _date(name: str) -> dict:
+    return {"name": name, "type": "datetime", "style": {"format": "yyyy-MM-dd"}}
+
+
 def _checkbox(name: str) -> dict:
     return {"name": name, "type": "checkbox"}
 
 
-def _phone(name: str) -> dict:
-    return {"name": name, "type": "phone"}
-
-
-def _url(name: str) -> dict:
-    return {"name": name, "type": "url"}
-
-
-LEAD_STAGES = [
-    "NEW_LEAD", "PRICES_SENT", "PACKAGE_SELECTED", "DEVICE_SELECTED",
-    "INSTALL_METHOD", "APP_LINK_SENT", "APP_INSTALLED", "HANDOFF_REQUESTED",
-    "SETUP_VERIFIED", "PAYMENT_DUE", "PAYMENT_VERIFICATION", "CONVERTED",
-    "TRIAL_REQUESTED", "TRIAL_ACTIVE", "RENEWAL", "LOST", "OPTED_OUT",
-]
-
+LEAD_SOURCE = ["WhatsApp", "Facebook", "Instagram", "TikTok", "Website", "Walk-in",
+               "Referral", "Reseller", "Field Sales", "Other"]
+REGIONS = ["Western Area", "North West", "Northern", "Eastern", "Southern", "Other"]
+LANGUAGES = ["Krio", "English", "Temne", "Mende", "Limba", "Other"]
+DEVICE_TYPES = ["Smart TV", "Android TV", "Android Box", "Fire TV Stick",
+                "Android Phone", "iPhone or iPad", "Computer", "Other"]
+INTERNET_TYPES = ["Wi-Fi", "Fiber", "Mobile Data", "Unknown"]
+SETUP_METHODS = ["Self-Setup", "Remote Assistance", "Physical Visit", "Undecided"]
+LEAD_STAGES = ["New", "Contacted", "Qualified", "Trial Requested", "Trial Active",
+               "Trial Ended", "Package Selected", "Setup Booked", "Payment Pending",
+               "Won", "Lost", "On Hold"]
+PRIORITIES = ["Hot", "Warm", "Cold"]
+TRIAL_OUTCOMES = ["Not Requested", "Requested", "Active", "Expired", "Converted", "Declined"]
+LOST_REASONS = ["Price", "No Response", "Device or Internet", "Location", "Competitor", "Other"]
+TRIAL_STATUSES = ["Requested", "Approved", "Active", "Expired", "Converted", "Declined", "Revoked"]
+DUPLICATE_CHECK = ["Clear", "Needs Review", "Duplicate"]
+CUSTOMER_STATUSES = ["Active", "Renewal Due", "Expired", "On Hold", "Cancelled"]
 DEVICE_TIERS = ["1 Device", "2 Devices", "3 Devices", "4+ Devices"]
-PAYMENT_METHODS = ["orange_money", "afrimoney", "qmoney", "bank_transfer", "cash"]
-PAYMENT_STATUSES = ["pending", "verifying", "confirmed", "rejected"]
 YES_NO = ["Yes", "No"]
+SUBSCRIPTION_STATUSES = ["Pending", "Active", "Renewal Due", "Expired", "Suspended", "Cancelled"]
+PAYMENT_FOR = ["New Subscription", "Renewal", "Installation", "Device Upgrade",
+               "Reseller Deposit", "Other"]
+CURRENCIES = ["SLE", "USD"]
+PAYMENT_METHODS = ["Orange Money", "Afrimoney", "Cash", "Bank Transfer", "Card", "Other"]
+PAYMENT_STATUSES = ["Pending", "Verification Required", "Confirmed", "Partially Paid",
+                    "Failed", "Refunded"]
+SETUP_TYPES = ["Self-Setup", "Remote Assistance", "Physical Installation"]
+BOOKING_STATUSES = ["Requested", "Quote Sent", "Confirmed", "Scheduled", "En Route",
+                    "In Progress", "Completed", "Reschedule", "Cancelled"]
+DEVICE_STATUSES = ["Active", "Trial", "Replaced", "Disconnected", "Blocked"]
+RESELLER_TYPES = ["Individual", "Shop", "Agent", "Distributor"]
+RESELLER_STATUSES = ["Applicant", "Pending Approval", "Active", "Suspended", "Inactive"]
+OPERATING_MODELS = ["Referral Commission", "Collect and Remit", "Prepaid Wallet", "Hybrid"]
+COMMISSION_METHODS = ["Percentage", "Fixed", "No Commission"]
+COMMISSION_BASES = ["Subscription Net Revenue", "Subscription Gross Revenue"]
+SETTLEMENT_FREQ = ["Per Sale", "Weekly", "Monthly"]
+PAYOUT_METHODS = ["Orange Money", "Afrimoney", "Bank Transfer", "Cash"]
+SALE_TYPES = ["New", "Renewal", "Upgrade", "Installation"]
+COLLECTED_BY = ["NexgloTV", "Reseller", "Customer Direct"]
+SALE_STATUSES = ["Pending", "Trial", "Payment Pending", "Confirmed", "Cancelled", "Refunded"]
+COMMISSION_STATUSES = ["Pending Payment", "Review", "Approved", "In Payout", "Paid",
+                       "Held", "Reversed"]
+PAYOUT_STATUSES = ["Draft", "Awaiting Approval", "Approved", "Processing", "Paid",
+                   "Partially Paid", "Rejected"]
+WALLET_ENTRY_TYPES = ["Deposit Credit", "Package Debit", "Refund Credit",
+                      "Manual Adjustment Credit", "Manual Adjustment Debit"]
+WALLET_STATUSES = ["Pending", "Confirmed", "Reversed"]
+REWARD_TYPES = ["Bonus Viewing Days", "Approved Discount", "Other"]
+REWARD_STATUSES = ["Pending", "Qualified", "Approved", "Applied", "Rejected"]
+STAFF_ROLES = ["Sales", "Technician", "Support", "Finance", "Manager", "Admin"]
+STAFF_STATUSES = ["Active", "On Leave", "Inactive"]
+ISSUE_TYPES = ["Login", "App Installation", "Buffering", "Playback", "Subscription",
+               "Device", "Billing", "Trial", "Other"]
+TICKET_PRIORITIES = ["Low", "Normal", "High", "Urgent"]
+TICKET_STATUSES = ["New", "Investigating", "Waiting Customer", "Escalated", "Resolved", "Closed"]
+ACTIVITY_TYPES = ["Call", "WhatsApp", "Visit", "Demo", "Follow-up", "Training",
+                  "Payment Reminder", "Renewal Reminder", "Other"]
+ACTIVITY_STATUSES = ["Planned", "Due", "Completed", "Cancelled"]
+ACTIVITY_OUTCOMES = ["Interested", "No Answer", "Need Follow-up", "Converted",
+                     "Not Interested", "Resolved", "Other"]
+INSTALLATION_TYPES = ["Physical Visit", "Remote", "Both"]
+SERVICE_AVAILABLE = ["Yes", "No", "On Request"]
 
-TABLE_SCHEMAS: dict[str, list[dict]] = {
+# Bot state -> manifest Lead Stage
+STAGE_TO_MANIFEST = {
+    "NEW_LEAD": "New", "PRICES_SENT": "Contacted", "FAQ_ONLY": "Contacted",
+    "SUPPORT": "Contacted", "COMPATIBILITY_CHECK": "Contacted", "FOLLOW_UP": "Contacted",
+    "REFERRAL": "Contacted", "PACKAGE_SELECTED": "Package Selected",
+    "PAYMENT_READINESS": "Package Selected", "DEVICE_SELECTED": "Qualified",
+    "DEVICE_MODEL": "Qualified", "RENEWAL": "Qualified",
+    "INSTALL_METHOD": "Setup Booked", "AREA_CAPTURED": "Setup Booked",
+    "APP_LINK_SENT": "Setup Booked", "APP_INSTALLED": "Setup Booked",
+    "HANDOFF_REQUESTED": "Setup Booked", "ESCALATED": "On Hold",
+    "HUMAN_OWNED": "On Hold", "OPTED_OUT": "On Hold",
+    "SETUP_VERIFIED": "Payment Pending", "PAYMENT_DUE": "Payment Pending",
+    "PAYMENT_VERIFICATION": "Payment Pending", "CONVERTED": "Won",
+    "TRIAL_REQUESTED": "Trial Requested", "TRIAL_APPROVAL": "Trial Requested",
+    "TRIAL_ACTIVE": "Trial Active", "TRIAL_ENDED": "Trial Ended", "LOST": "Lost",
+}
+
+DEV_TYPE_TO_MANIFEST = {
+    "smart_tv": "Smart TV", "android_tv": "Android TV", "android_tv_box": "Android Box",
+    "fire_stick": "Fire TV Stick", "android_phone": "Android Phone",
+    "iphone_ipad": "iPhone or iPad", "laptop": "Computer", "tablet": "Other",
+    "other": "Other",
+}
+SETUP_TO_MANIFEST = {"self_install": "Self-Setup", "remote_guided": "Remote Assistance",
+                     "staff_visit": "Physical Visit", "undecided": "Undecided"}
+SETUP_TYPE_TO_MANIFEST = {"self_install": "Self-Setup",
+                          "remote_guided": "Remote Assistance",
+                          "staff_visit": "Physical Installation"}
+PREF_SETUP_TO_MANIFEST = {"self_install": "Self-Setup", "remote_guided": "Remote",
+                          "staff_visit": "Physical"}
+LANG_TO_MANIFEST = {"EN": "English", "English": "English", "Krio": "Krio",
+                    "Temne": "Temne", "Mende": "Mende", "Limba": "Limba",
+                    "Other": "Other"}
+PAY_METHOD_TO_MANIFEST = {"orange_money": "Orange Money", "afrimoney": "Afrimoney",
+                          "bank_transfer": "Bank Transfer", "cash": "Cash",
+                          "qmoney": "Other", "card": "Card", "other": "Other"}
+
+FIELD_SCHEMAS: dict[str, list[dict]] = {
     "01_Leads": [
         _text("Lead ID"), _text("Lead Name"), _phone("WhatsApp Number"),
-        _phone("Alternate Phone"),
-        _select("Lead Source", ["whatsapp_bot", "referral", "reseller", "walk_in", "advert", "other"]),
+        _phone("Alternate Phone"), _select("Lead Source", LEAD_SOURCE),
         _text("Campaign Code"), _text("Referral ID"), _text("Reseller ID"),
-        _text("Sales Agent ID"), _text("Region"), _text("Town or Community"),
-        _text("Address or Landmark"),
-        _select("Preferred Language", ["EN", "Krio", "Other"]),
-        _text("Device Type"), _number("Device Count"),
-        _select("Internet Type", ["qcell", "africell", "sierratel", "wifi", "mifi", "mobile_data", "unknown"]),
-        _select("Setup Method", ["self_install", "remote_guided", "staff_visit"]),
+        _text("Sales Agent ID"), _select("Region", REGIONS), _text("Town or Community"),
+        _text("Address or Landmark"), _select("Preferred Language", LANGUAGES),
+        _select("Device Type", DEVICE_TYPES), _number("Device Count"),
+        _select("Internet Type", INTERNET_TYPES), _select("Setup Method", SETUP_METHODS),
         _text("Interested Package ID"), _select("Lead Stage", LEAD_STAGES),
-        _select("Priority", ["hot", "warm", "cold"]),
-        _text("Trial ID"), _text("Trial Outcome"), _text("Installation ID"),
+        _select("Priority", PRIORITIES), _text("Trial ID"),
+        _select("Trial Outcome", TRIAL_OUTCOMES), _text("Installation ID"),
         _datetime("First Contact At"), _datetime("Last Contact At"),
-        _datetime("Next Follow Up"), _text("Lost Reason"), _text("Lead Notes"),
-        _datetime("Created At"),
+        _datetime("Next Follow Up"), _select("Lost Reason", LOST_REASONS),
+        _text("Lead Notes"), _datetime("Created At"),
     ],
     "02_Free_Trials": [
         _text("Trial ID"), _text("Lead ID"), _phone("WhatsApp Number"),
         _text("Trial Device ID"), _text("Package ID"), _datetime("Requested At"),
         _datetime("Activated At"), _datetime("Expires At"),
-        _number("Trial Duration Hours"),
-        _select("Trial Status", ["requested", "approved", "active", "expired", "converted", "rejected"]),
+        _number("Trial Duration Hours"), _select("Trial Status", TRIAL_STATUSES),
         _text("Trial Account Reference"), _text("Approved By Staff ID"),
         _text("Activated By Staff ID"), _datetime("Access Disabled At"),
-        _checkbox("Eligibility Checked"), _checkbox("Duplicate Check"),
+        _checkbox("Eligibility Checked"), _select("Duplicate Check", DUPLICATE_CHECK),
         _text("Converted Customer ID"), _text("Conversion Payment ID"),
         _text("Lead Source"), _text("Trial Notes"),
     ],
@@ -87,10 +180,10 @@ TABLE_SCHEMAS: dict[str, list[dict]] = {
         _phone("Alternative Phone"), _text("Original Lead ID"), _text("Trial ID"),
         _text("Reseller ID"), _text("Sales Agent ID"), _datetime("Date Joined"),
         _text("Region"), _text("Town or Community"), _text("Address"),
-        _select("Preferred Language", ["EN", "Krio", "Other"]),
-        _select("Customer Status", ["active", "expired", "suspended", "cancelled"]),
+        _select("Preferred Language", LANGUAGES),
+        _select("Customer Status", CUSTOMER_STATUSES),
         _text("Current Subscription ID"), _text("Most Recent Payment ID"),
-        _select("Preferred Setup", ["self_install", "remote_guided", "staff_visit"]),
+        _select("Preferred Setup", ["Self-Setup", "Remote", "Physical"]),
         _text("Primary Device Type"), _text("Referral Code"),
         _checkbox("Renewal Reminder Opt-in"), _text("Support Notes"),
     ],
@@ -99,8 +192,8 @@ TABLE_SCHEMAS: dict[str, list[dict]] = {
         _select("Device Tier", DEVICE_TIERS), _number("Minimum Devices"),
         _number("Reference Device Count"), _number("Unit Price SLE"),
         _number("Promotion Discount %"), _checkbox("Trial Eligible"),
-        _number("Trial Hours"), _select("Available", YES_NO),
-        _text("Price Version"), _datetime("Valid From"), _text("Package Notes"),
+        _number("Trial Hours"), _select("Available", YES_NO), _text("Price Version"),
+        _date("Valid From"), _text("Package Notes"),
     ],
     "05_Subscriptions": [
         _text("Subscription ID"), _text("Customer ID"),
@@ -108,10 +201,9 @@ TABLE_SCHEMAS: dict[str, list[dict]] = {
         _text("Package ID"), _number("Device Count"), _number("Duration Months"),
         _datetime("Activation Date"), _datetime("Standard Expiry"),
         _number("Approved Bonus Days"), _datetime("Final Expiry"),
-        _select("Subscription Status", ["pending_setup", "active", "expired", "cancelled"]),
-        _text("Payment ID"), _number("Gross Price SLE"),
-        _number("Discount % Snapshot"), _number("Amount Paid SLE"),
-        _text("Reseller ID"), _text("Reseller Sale ID"),
+        _select("Subscription Status", SUBSCRIPTION_STATUSES), _text("Payment ID"),
+        _number("Gross Price SLE"), _number("Discount % Snapshot"),
+        _number("Amount Paid SLE"), _text("Reseller ID"), _text("Reseller Sale ID"),
         _datetime("Renewal Follow-up At"), _text("Access Activated By"),
         _checkbox("Setup Verified"), _text("Bonus Approval By"),
         _text("Subscription Notes"),
@@ -120,26 +212,25 @@ TABLE_SCHEMAS: dict[str, list[dict]] = {
         _text("Payment ID"), _datetime("Received At"), _text("Customer ID"),
         _text("Lead ID"), _text("Reseller ID"), _text("Reseller Sale ID"),
         _text("Subscription ID"), _text("Installation ID"),
-        _select("Payment For", ["subscription", "installation", "hardware", "other"]),
-        _text("Package ID"), _number("Device Count"),
-        _number("Unit Price Snapshot SLE"), _number("Gross Subscription SLE"),
-        _number("Discount %"), _number("Discount Amount SLE"),
-        _number("Installation Fee SLE"), _number("Amount Due SLE"),
-        _number("Amount Received SLE"), _number("Balance Due SLE"),
-        _select("Currency", ["SLE"]), _select("Payment Method", PAYMENT_METHODS),
-        _text("Payment Reference"), _text("Collected By Staff ID"),
-        _text("Confirmed By Staff ID"), _select("Payment Status", PAYMENT_STATUSES),
-        _url("Proof URL"), _text("Payment Notes"),
+        _select("Payment For", PAYMENT_FOR), _text("Package ID"),
+        _number("Device Count"), _number("Unit Price Snapshot SLE"),
+        _number("Gross Subscription SLE"), _number("Discount %"),
+        _number("Discount Amount SLE"), _number("Installation Fee SLE"),
+        _number("Amount Due SLE"), _number("Amount Received SLE"),
+        _number("Balance Due SLE"), _select("Currency", CURRENCIES),
+        _select("Payment Method", PAYMENT_METHODS), _text("Payment Reference"),
+        _text("Collected By Staff ID"), _text("Confirmed By Staff ID"),
+        _select("Payment Status", PAYMENT_STATUSES), _url("Proof URL"),
+        _text("Payment Notes"),
     ],
     "07_Installations": [
         _text("Installation ID"), _text("Lead ID"), _text("Customer ID"),
         _text("Trial ID"), _datetime("Requested At"), _datetime("Scheduled At"),
-        _select("Setup Type", ["self_install", "remote_guided", "staff_visit"]),
-        _text("Service Zone ID"), _text("Address and Landmark"), _url("Map URL"),
-        _text("Device Type"), _number("Device Count"),
-        _text("Assigned Technician ID"), _number("Visit Fee Quoted SLE"),
-        _number("Visit Fee Paid SLE"), _text("Payment ID"),
-        _select("Booking Status", ["pending_quote", "quote_issued", "booked", "in_progress", "completed", "cancelled"]),
+        _select("Setup Type", SETUP_TYPES), _text("Service Zone ID"),
+        _text("Address and Landmark"), _url("Map URL"), _text("Device Type"),
+        _number("Device Count"), _text("Assigned Technician ID"),
+        _number("Visit Fee Quoted SLE"), _number("Visit Fee Paid SLE"),
+        _text("Payment ID"), _select("Booking Status", BOOKING_STATUSES),
         _datetime("Visit Started At"), _datetime("Completed At"),
         _checkbox("App Installed"), _checkbox("Account Configured"),
         _checkbox("Playback Tested"), _checkbox("Customer Accepted"),
@@ -147,29 +238,28 @@ TABLE_SCHEMAS: dict[str, list[dict]] = {
     ],
     "08_Devices": [
         _text("Device ID"), _text("Customer ID"), _text("Subscription ID"),
-        _text("Trial ID"), _text("Device Type"), _text("Device Nickname"),
-        _text("Platform or OS"), _text("Hardware Identifier Masked"),
-        _text("App Name"), _text("App Version"), _datetime("Registered At"),
-        _datetime("Last Checked At"),
-        _select("Device Status", ["pending", "active", "inactive", "replaced"]),
-        _text("Installed By Staff ID"), _text("Notes - No Passwords"),
+        _text("Trial ID"), _select("Device Type", DEVICE_TYPES),
+        _text("Device Nickname"), _text("Platform or OS"),
+        _text("Hardware Identifier Masked"), _text("App Name"), _text("App Version"),
+        _datetime("Registered At"), _datetime("Last Checked At"),
+        _select("Device Status", DEVICE_STATUSES), _text("Installed By Staff ID"),
+        _text("Notes - No Passwords"),
     ],
     "09_Resellers": [
         _text("Reseller ID"), _text("Reseller Code"), _text("Business or Full Name"),
         _text("Primary Contact"), _phone("WhatsApp Number"),
-        _phone("Alternative Phone"), _text("Business Email"),
-        _select("Reseller Type", ["individual", "business", "sub_agent"]),
-        _text("Territory or Zone"), _text("Location Address"), _datetime("Joined At"),
-        _select("Status", ["pending", "active", "suspended", "terminated"]),
-        _checkbox("Onboarding Verified"), _url("Agreement URL"),
-        _text("Managed By Staff ID"),
-        _select("Operating Model", ["cash_and_carry", "collect_and_remit", "online"]),
-        _select("Default Commission Method", ["percentage", "fixed_amount"]),
+        _phone("Alternative Phone"), _email("Business Email"),
+        _select("Reseller Type", RESELLER_TYPES), _text("Territory or Zone"),
+        _text("Location Address"), _datetime("Joined At"),
+        _select("Status", RESELLER_STATUSES), _checkbox("Onboarding Verified"),
+        _url("Agreement URL"), _text("Managed By Staff ID"),
+        _select("Operating Model", OPERATING_MODELS),
+        _select("Default Commission Method", COMMISSION_METHODS),
         _number("Default Commission Rate %"), _number("Default Fixed Commission SLE"),
-        _select("Commission Basis", ["net_subscription", "gross_subscription"]),
-        _select("Settlement Frequency", ["weekly", "biweekly", "monthly"]),
+        _select("Commission Basis", COMMISSION_BASES),
+        _select("Settlement Frequency", SETTLEMENT_FREQ),
         _number("Wallet Opening Credit SLE"), _number("Credit Limit SLE"),
-        _select("Preferred Payout Method", PAYMENT_METHODS),
+        _select("Preferred Payout Method", PAYOUT_METHODS),
         _text("Payout Account Masked"), _text("Unique Referral Code"),
         _datetime("Last Activity At"), _text("Notes"),
     ],
@@ -177,137 +267,394 @@ TABLE_SCHEMAS: dict[str, list[dict]] = {
         _text("Reseller Sale ID"), _text("Reseller ID"),
         _text("Reseller Code Snapshot"), _text("Lead ID"), _text("Customer ID"),
         _text("Subscription ID"), _text("Package ID"), _text("Payment ID"),
-        _datetime("Sale Date"), _select("Sale Type", ["new", "renewal", "upgrade"]),
+        _datetime("Sale Date"), _select("Sale Type", SALE_TYPES),
         _number("Device Count"), _number("Gross Subscription SLE"),
         _number("Discount SLE"), _number("Net Subscription SLE"),
-        _number("Installation Fee SLE"), _text("Collected By"),
+        _number("Installation Fee SLE"), _select("Collected By", COLLECTED_BY),
         _number("Amount Collected By Reseller SLE"),
         _number("Amount Remitted To NexgloTV SLE"), _number("Remittance Due SLE"),
         _datetime("Remittance Due Date"), _checkbox("Commission Eligible"),
-        _text("Commission ID"),
-        _select("Sale Status", ["pending_remit", "remitted", "verified", "rejected"]),
+        _text("Commission ID"), _select("Sale Status", SALE_STATUSES),
         _text("Verified By Staff ID"), _text("Reseller Sales Notes"),
     ],
     "11_Commissions": [
         _text("Commission ID"), _text("Reseller ID"), _text("Reseller Sale ID"),
         _text("Payment ID"), _text("Customer ID"), _datetime("Earned On"),
-        _number("Eligible Revenue SLE"), _text("Commission Method Snapshot"),
+        _number("Eligible Revenue SLE"),
+        _select("Commission Method Snapshot", ["Percentage", "Fixed"]),
         _number("Rate % Snapshot"), _number("Fixed Amount Snapshot SLE"),
         _number("Commission Earned SLE"), _number("Adjustment SLE"),
-        _number("Payable SLE"),
-        _select("Commission Status", ["pending", "approved", "paid", "held", "cancelled"]),
+        _number("Payable SLE"), _select("Commission Status", COMMISSION_STATUSES),
         _text("Approved By Staff ID"), _datetime("Approved At"), _text("Payout ID"),
         _datetime("Paid At"), _text("Hold Reason"), _text("Commission Notes"),
     ],
     "12_Reseller_Payouts": [
-        _text("Payout ID"), _text("Reseller ID"), _datetime("Period Start"),
-        _datetime("Period End"), _datetime("Requested At"),
+        _text("Payout ID"), _text("Reseller ID"), _date("Period Start"),
+        _date("Period End"), _datetime("Requested At"),
         _number("Commission Total SLE"), _number("Adjustments SLE"),
         _number("Payout Due SLE"), _number("Amount Paid SLE"),
-        _number("Payout Balance SLE"), _select("Payout Method", PAYMENT_METHODS),
+        _number("Payout Balance SLE"), _select("Payout Method", PAYOUT_METHODS),
         _text("Destination Account Masked"), _text("Transaction Reference"),
-        _select("Payout Status", ["requested", "approved", "paid", "rejected"]),
-        _text("Approved By Staff ID"), _datetime("Approved At"), _datetime("Paid At"),
-        _url("Evidence URL"), _text("Payout Notes"),
+        _select("Payout Status", PAYOUT_STATUSES), _text("Approved By Staff ID"),
+        _datetime("Approved At"), _datetime("Paid At"), _url("Evidence URL"),
+        _text("Payout Notes"),
     ],
     "13_Reseller_Wallet": [
         _text("Wallet Entry ID"), _text("Reseller ID"), _datetime("Transaction At"),
-        _select("Entry Type", ["opening_credit", "sale_credit", "commission", "remittance_debit", "payout_debit", "adjustment"]),
-        _number("Credit SLE"), _number("Debit SLE"), _text("Reseller Sale ID"),
-        _text("Payment ID"), _text("Reference"),
-        _select("Wallet Status", ["pending", "approved", "void"]),
+        _select("Entry Type", WALLET_ENTRY_TYPES), _number("Credit SLE"),
+        _number("Debit SLE"), _text("Reseller Sale ID"), _text("Payment ID"),
+        _text("Reference"), _select("Wallet Status", WALLET_STATUSES),
         _text("Approved By Staff ID"), _datetime("Approval At"), _url("Evidence URL"),
         _text("Ledger Notes"),
     ],
     "14_Referrals": [
-        _text("Referral ID"), _text("Referrer Customer ID"),
-        _text("Referred Lead ID"), _text("Referred Customer ID"),
-        _datetime("Referral Date"), _text("Referral Code"),
-        _text("Reseller ID - If Any"), _text("Qualified Payment ID"),
-        _select("Reward Type", ["days", "cash", "none"]),
+        _text("Referral ID"), _text("Referrer Customer ID"), _text("Referred Lead ID"),
+        _text("Referred Customer ID"), _datetime("Referral Date"),
+        _text("Referral Code"), _text("Reseller ID - If Any"),
+        _text("Qualified Payment ID"), _select("Reward Type", REWARD_TYPES),
         _number("Reward Value Days"), _number("Reward Value SLE"),
-        _select("Reward Status", ["pending", "qualified", "applied", "paid", "rejected"]),
-        _text("Applied Subscription ID"), _text("Approved By Staff ID"),
-        _datetime("Applied At"), _text("Notes"),
+        _select("Reward Status", REWARD_STATUSES), _text("Applied Subscription ID"),
+        _text("Approved By Staff ID"), _datetime("Applied At"), _text("Notes"),
     ],
     "15_Staff": [
         _text("Staff ID"), _text("Staff Name"), _text("Lark Member"),
-        _phone("Work Phone"),
-        _select("Role", ["setup_agent", "payment_verifier", "technician", "admin", "sales"]),
-        _text("Region or Territory"), _datetime("Start Date"),
-        _select("Staff Status", ["active", "inactive", "suspended"]),
-        _text("Supervisor Staff ID"), _number("Lead Capacity"),
-        _number("Installation Capacity"), _text("Notes"),
+        _phone("Work Phone"), _select("Role", STAFF_ROLES),
+        _text("Region or Territory"), _date("Start Date"),
+        _select("Staff Status", STAFF_STATUSES), _text("Supervisor Staff ID"),
+        _number("Lead Capacity"), _number("Installation Capacity"), _text("Notes"),
     ],
     "16_Support_Tickets": [
         _text("Ticket ID"), _text("Customer ID"), _text("Lead ID"),
         _text("Reseller ID"), _text("Subscription ID"), _datetime("Opened At"),
-        _select("Issue Type", ["login", "buffering", "channel_missing", "payment", "device", "other"]),
-        _select("Priority", ["low", "medium", "high", "urgent"]),
+        _select("Issue Type", ISSUE_TYPES), _select("Priority", TICKET_PRIORITIES),
         _text("Subject"), _text("Description"), _text("Assigned Staff ID"),
-        _select("Ticket Status", ["open", "in_progress", "waiting_customer", "resolved", "closed"]),
-        _datetime("First Response At"), _datetime("Follow Up At"),
-        _datetime("Resolved At"), _text("Resolution Notes"),
+        _select("Ticket Status", TICKET_STATUSES), _datetime("First Response At"),
+        _datetime("Follow Up At"), _datetime("Resolved At"), _text("Resolution Notes"),
         _checkbox("Customer Confirmed"), _text("Ticket Notes"),
     ],
     "17_Activities": [
         _text("Activity ID"), _text("Lead ID"), _text("Customer ID"),
         _text("Reseller ID"), _text("Staff ID"),
-        _select("Activity Type", ["price_sent", "quote_given", "follow_up", "call", "visit", "note", "handoff"]),
-        _datetime("Activity At"), _datetime("Due At"),
-        _select("Status", ["pending", "done", "cancelled"]),
-        _text("Outcome"), _text("Next Action"), _text("Related Ticket ID"),
-        _text("Notes"),
+        _select("Activity Type", ACTIVITY_TYPES), _datetime("Activity At"),
+        _datetime("Due At"), _select("Status", ACTIVITY_STATUSES),
+        _select("Outcome", ACTIVITY_OUTCOMES), _text("Next Action"),
+        _text("Related Ticket ID"), _text("Notes"),
     ],
     "18_Service_Zones": [
         _text("Zone ID"), _text("Region"), _text("District or Town"),
-        _text("Covered Communities"),
-        _select("Installation Type", ["staff_visit", "remote_only", "both"]),
+        _text("Covered Communities"), _select("Installation Type", INSTALLATION_TYPES),
         _number("Standard Visit Fee SLE"), _number("Transport Fee SLE"),
-        _number("Additional Device Fee SLE"), _select("Service Available", YES_NO),
-        _text("Assigned Technician ID"), _datetime("Price Effective Date"),
-        _text("Notes"),
+        _number("Additional Device Fee SLE"), _select("Service Available", SERVICE_AVAILABLE),
+        _text("Assigned Technician ID"), _date("Price Effective Date"), _text("Notes"),
     ],
 }
 
-# Key field per table (used for upsert lookup)
+# The 79 cross-table links: (table, field) -> target table (its primary field)
+LINKS: list[dict] = [
+    {"table": "01_Leads", "field": "Referral ID", "target": "14_Referrals"},
+    {"table": "01_Leads", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "01_Leads", "field": "Interested Package ID", "target": "04_Packages"},
+    {"table": "01_Leads", "field": "Trial ID", "target": "02_Free_Trials"},
+    {"table": "01_Leads", "field": "Installation ID", "target": "07_Installations"},
+    {"table": "02_Free_Trials", "field": "Lead ID", "target": "01_Leads"},
+    {"table": "02_Free_Trials", "field": "Trial Device ID", "target": "08_Devices"},
+    {"table": "02_Free_Trials", "field": "Package ID", "target": "04_Packages"},
+    {"table": "02_Free_Trials", "field": "Approved By Staff ID", "target": "15_Staff"},
+    {"table": "02_Free_Trials", "field": "Activated By Staff ID", "target": "15_Staff"},
+    {"table": "02_Free_Trials", "field": "Converted Customer ID", "target": "03_Customers"},
+    {"table": "02_Free_Trials", "field": "Conversion Payment ID", "target": "06_Payments"},
+    {"table": "03_Customers", "field": "Original Lead ID", "target": "01_Leads"},
+    {"table": "03_Customers", "field": "Trial ID", "target": "02_Free_Trials"},
+    {"table": "03_Customers", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "03_Customers", "field": "Current Subscription ID", "target": "05_Subscriptions"},
+    {"table": "03_Customers", "field": "Most Recent Payment ID", "target": "06_Payments"},
+    {"table": "05_Subscriptions", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "05_Subscriptions", "field": "Origin Trial ID", "target": "02_Free_Trials"},
+    {"table": "05_Subscriptions", "field": "Package ID", "target": "04_Packages"},
+    {"table": "05_Subscriptions", "field": "Payment ID", "target": "06_Payments"},
+    {"table": "05_Subscriptions", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "05_Subscriptions", "field": "Reseller Sale ID", "target": "10_Reseller_Sales"},
+    {"table": "06_Payments", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "06_Payments", "field": "Lead ID", "target": "01_Leads"},
+    {"table": "06_Payments", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "06_Payments", "field": "Reseller Sale ID", "target": "10_Reseller_Sales"},
+    {"table": "06_Payments", "field": "Subscription ID", "target": "05_Subscriptions"},
+    {"table": "06_Payments", "field": "Installation ID", "target": "07_Installations"},
+    {"table": "06_Payments", "field": "Package ID", "target": "04_Packages"},
+    {"table": "06_Payments", "field": "Collected By Staff ID", "target": "15_Staff"},
+    {"table": "06_Payments", "field": "Confirmed By Staff ID", "target": "15_Staff"},
+    {"table": "07_Installations", "field": "Lead ID", "target": "01_Leads"},
+    {"table": "07_Installations", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "07_Installations", "field": "Trial ID", "target": "02_Free_Trials"},
+    {"table": "07_Installations", "field": "Service Zone ID", "target": "18_Service_Zones"},
+    {"table": "07_Installations", "field": "Payment ID", "target": "06_Payments"},
+    {"table": "08_Devices", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "08_Devices", "field": "Subscription ID", "target": "05_Subscriptions"},
+    {"table": "08_Devices", "field": "Trial ID", "target": "02_Free_Trials"},
+    {"table": "08_Devices", "field": "Installed By Staff ID", "target": "15_Staff"},
+    {"table": "09_Resellers", "field": "Managed By Staff ID", "target": "15_Staff"},
+    {"table": "10_Reseller_Sales", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "10_Reseller_Sales", "field": "Lead ID", "target": "01_Leads"},
+    {"table": "10_Reseller_Sales", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "10_Reseller_Sales", "field": "Subscription ID", "target": "05_Subscriptions"},
+    {"table": "10_Reseller_Sales", "field": "Package ID", "target": "04_Packages"},
+    {"table": "10_Reseller_Sales", "field": "Payment ID", "target": "06_Payments"},
+    {"table": "10_Reseller_Sales", "field": "Commission ID", "target": "11_Commissions"},
+    {"table": "10_Reseller_Sales", "field": "Verified By Staff ID", "target": "15_Staff"},
+    {"table": "11_Commissions", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "11_Commissions", "field": "Reseller Sale ID", "target": "10_Reseller_Sales"},
+    {"table": "11_Commissions", "field": "Payment ID", "target": "06_Payments"},
+    {"table": "11_Commissions", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "11_Commissions", "field": "Approved By Staff ID", "target": "15_Staff"},
+    {"table": "11_Commissions", "field": "Payout ID", "target": "12_Reseller_Payouts"},
+    {"table": "12_Reseller_Payouts", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "12_Reseller_Payouts", "field": "Approved By Staff ID", "target": "15_Staff"},
+    {"table": "13_Reseller_Wallet", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "13_Reseller_Wallet", "field": "Reseller Sale ID", "target": "10_Reseller_Sales"},
+    {"table": "13_Reseller_Wallet", "field": "Payment ID", "target": "06_Payments"},
+    {"table": "13_Reseller_Wallet", "field": "Approved By Staff ID", "target": "15_Staff"},
+    {"table": "14_Referrals", "field": "Referrer Customer ID", "target": "03_Customers"},
+    {"table": "14_Referrals", "field": "Referred Lead ID", "target": "01_Leads"},
+    {"table": "14_Referrals", "field": "Referred Customer ID", "target": "03_Customers"},
+    {"table": "14_Referrals", "field": "Reseller ID - If Any", "target": "09_Resellers"},
+    {"table": "14_Referrals", "field": "Qualified Payment ID", "target": "06_Payments"},
+    {"table": "14_Referrals", "field": "Applied Subscription ID", "target": "05_Subscriptions"},
+    {"table": "14_Referrals", "field": "Approved By Staff ID", "target": "15_Staff"},
+    {"table": "16_Support_Tickets", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "16_Support_Tickets", "field": "Lead ID", "target": "01_Leads"},
+    {"table": "16_Support_Tickets", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "16_Support_Tickets", "field": "Subscription ID", "target": "05_Subscriptions"},
+    {"table": "16_Support_Tickets", "field": "Assigned Staff ID", "target": "15_Staff"},
+    {"table": "17_Activities", "field": "Lead ID", "target": "01_Leads"},
+    {"table": "17_Activities", "field": "Customer ID", "target": "03_Customers"},
+    {"table": "17_Activities", "field": "Reseller ID", "target": "09_Resellers"},
+    {"table": "17_Activities", "field": "Staff ID", "target": "15_Staff"},
+    {"table": "17_Activities", "field": "Related Ticket ID", "target": "16_Support_Tickets"},
+]
+
+LINK_FIELDS: dict[str, dict[str, str]] = {}
+for _l in LINKS:
+    LINK_FIELDS.setdefault(_l["table"], {})[_l["field"]] = _l["target"]
+
 TABLE_KEY_FIELD: dict[str, str] = {
-    "01_Leads": "Lead ID",
-    "02_Free_Trials": "Trial ID",
-    "03_Customers": "Customer ID",
-    "04_Packages": "Package ID",
-    "05_Subscriptions": "Subscription ID",
-    "06_Payments": "Payment ID",
-    "07_Installations": "Installation ID",
-    "08_Devices": "Device ID",
-    "09_Resellers": "Reseller ID",
-    "10_Reseller_Sales": "Reseller Sale ID",
-    "11_Commissions": "Commission ID",
-    "12_Reseller_Payouts": "Payout ID",
-    "13_Reseller_Wallet": "Wallet Entry ID",
-    "14_Referrals": "Referral ID",
-    "15_Staff": "Staff ID",
-    "16_Support_Tickets": "Ticket ID",
-    "17_Activities": "Activity ID",
+    "01_Leads": "Lead ID", "02_Free_Trials": "Trial ID", "03_Customers": "Customer ID",
+    "04_Packages": "Package ID", "05_Subscriptions": "Subscription ID",
+    "06_Payments": "Payment ID", "07_Installations": "Installation ID",
+    "08_Devices": "Device ID", "09_Resellers": "Reseller ID",
+    "10_Reseller_Sales": "Reseller Sale ID", "11_Commissions": "Commission ID",
+    "12_Reseller_Payouts": "Payout ID", "13_Reseller_Wallet": "Wallet Entry ID",
+    "14_Referrals": "Referral ID", "15_Staff": "Staff ID",
+    "16_Support_Tickets": "Ticket ID", "17_Activities": "Activity ID",
     "18_Service_Zones": "Zone ID",
 }
 
-# Wa_id lookup fields (for finding a contact's row)
 TABLE_WA_FIELD: dict[str, str] = {
-    "01_Leads": "WhatsApp Number",
-    "02_Free_Trials": "WhatsApp Number",
-    "03_Customers": "WhatsApp Number",
-    "09_Resellers": "WhatsApp Number",
+    "01_Leads": "WhatsApp Number", "02_Free_Trials": "WhatsApp Number",
+    "03_Customers": "WhatsApp Number", "09_Resellers": "WhatsApp Number",
 }
 
-# Tables the WhatsApp bot writes to (read-mostly tables excluded)
-BOT_WRITE_TABLES = {
-    "01_Leads", "02_Free_Trials", "03_Customers", "05_Subscriptions",
-    "06_Payments", "07_Installations", "08_Devices", "14_Referrals",
-    "16_Support_Tickets", "17_Activities",
+# Bot value -> manifest option label, per table/column. Unmapped columns/values
+# pass through verbatim; select writes that match no option are dropped by _to_cell.
+VALUE_MAPS: dict[str, dict[str, dict[str, str]]] = {
+    "01_Leads": {
+        "Lead Source": {"whatsapp_bot": "WhatsApp", "referral": "Referral",
+                        "reseller": "Reseller", "walk_in": "Walk-in",
+                        "advert": "Other", "other": "Other"},
+        "Region": {"western_area": "Western Area", "north_west": "North West",
+                   "northern": "Northern", "eastern": "Eastern",
+                   "southern": "Southern", "other": "Other"},
+        "Preferred Language": LANG_TO_MANIFEST,
+        "Device Type": DEV_TYPE_TO_MANIFEST,
+        "Internet Type": {"wifi": "Wi-Fi", "mifi": "Wi-Fi", "qcell": "Mobile Data",
+                          "africell": "Mobile Data", "sierratel": "Mobile Data",
+                          "mobile_data": "Mobile Data", "fiber": "Fiber",
+                          "unknown": "Unknown"},
+        "Setup Method": SETUP_TO_MANIFEST,
+        "Lead Stage": STAGE_TO_MANIFEST,
+        "Priority": {"hot": "Hot", "warm": "Warm", "cold": "Cold"},
+        "Trial Outcome": {"": "Not Requested", "none": "Not Requested",
+                          "requested": "Requested", "active": "Active",
+                          "expired": "Expired", "converted": "Converted",
+                          "declined": "Declined"},
+        "Lost Reason": {"price": "Price", "no_response": "No Response",
+                        "device_or_internet": "Device or Internet",
+                        "location": "Location", "competitor": "Competitor",
+                        "other": "Other"},
+    },
+    "02_Free_Trials": {
+        "Trial Status": {"requested": "Requested", "approved": "Approved",
+                         "active": "Active", "expired": "Expired",
+                         "converted": "Converted", "rejected": "Declined"},
+        "Duplicate Check": {"clear": "Clear", "needs_review": "Needs Review",
+                            "duplicate": "Duplicate"},
+    },
+    "03_Customers": {
+        "Preferred Language": LANG_TO_MANIFEST,
+        "Customer Status": {"active": "Active", "renewal_due": "Renewal Due",
+                            "expired": "Expired", "suspended": "On Hold",
+                            "cancelled": "Cancelled"},
+        "Preferred Setup": PREF_SETUP_TO_MANIFEST,
+    },
+    "05_Subscriptions": {
+        "Subscription Status": {"pending_setup": "Pending", "active": "Active",
+                                "renewal_due": "Renewal Due", "expired": "Expired",
+                                "suspended": "Suspended", "cancelled": "Cancelled"},
+    },
+    "06_Payments": {
+        "Payment For": {"subscription": "New Subscription", "renewal": "Renewal",
+                        "installation": "Installation", "hardware": "Device Upgrade",
+                        "reseller_deposit": "Reseller Deposit", "other": "Other"},
+        "Currency": {"SLE": "SLE", "USD": "USD"},
+        "Payment Method": PAY_METHOD_TO_MANIFEST,
+        "Payment Status": {"pending": "Pending", "verifying": "Verification Required",
+                           "confirmed": "Confirmed", "partial": "Partially Paid",
+                           "rejected": "Failed", "refunded": "Refunded"},
+    },
+    "07_Installations": {
+        "Setup Type": SETUP_TYPE_TO_MANIFEST,
+        "Booking Status": {"pending_quote": "Requested", "quote_issued": "Quote Sent",
+                           "booked": "Confirmed", "scheduled": "Scheduled",
+                           "en_route": "En Route", "in_progress": "In Progress",
+                           "completed": "Completed", "reschedule": "Reschedule",
+                           "cancelled": "Cancelled"},
+    },
+    "08_Devices": {
+        "Device Type": DEV_TYPE_TO_MANIFEST,
+        "Device Status": {"pending": "Trial", "active": "Active",
+                          "inactive": "Disconnected", "replaced": "Replaced",
+                          "blocked": "Blocked"},
+    },
+    "09_Resellers": {
+        "Reseller Type": {"individual": "Individual", "business": "Shop",
+                          "sub_agent": "Agent", "distributor": "Distributor"},
+        "Status": {"pending": "Pending Approval", "applicant": "Applicant",
+                   "active": "Active", "suspended": "Suspended",
+                   "terminated": "Inactive", "inactive": "Inactive"},
+        "Operating Model": {"referral_commission": "Referral Commission",
+                            "collect_and_remit": "Collect and Remit",
+                            "prepaid_wallet": "Prepaid Wallet", "hybrid": "Hybrid",
+                            "cash_and_carry": "Hybrid", "online": "Referral Commission",
+                            "prepaid": "Prepaid Wallet"},
+        "Default Commission Method": {"percentage": "Percentage", "fixed": "Fixed",
+                                      "fixed_amount": "Fixed", "none": "No Commission"},
+        "Commission Basis": {"net_subscription": "Subscription Net Revenue",
+                             "gross_subscription": "Subscription Gross Revenue"},
+        "Settlement Frequency": {"per_sale": "Per Sale", "weekly": "Weekly",
+                                 "biweekly": "Weekly", "monthly": "Monthly"},
+        "Preferred Payout Method": PAY_METHOD_TO_MANIFEST,
+    },
+    "10_Reseller_Sales": {
+        "Sale Type": {"new": "New", "renewal": "Renewal", "upgrade": "Upgrade",
+                      "installation": "Installation"},
+        "Collected By": {"nexglotv": "NexgloTV", "reseller": "Reseller",
+                         "customer_direct": "Customer Direct"},
+        "Sale Status": {"pending": "Pending", "trial": "Trial",
+                        "payment_pending": "Payment Pending", "confirmed": "Confirmed",
+                        "cancelled": "Cancelled", "refunded": "Refunded",
+                        "pending_remit": "Payment Pending", "remitted": "Pending",
+                        "verified": "Confirmed", "rejected": "Cancelled"},
+    },
+    "11_Commissions": {
+        "Commission Method Snapshot": {"percentage": "Percentage", "fixed": "Fixed",
+                                       "fixed_amount": "Fixed"},
+        "Commission Status": {"pending": "Pending Payment", "review": "Review",
+                              "approved": "Approved", "in_payout": "In Payout",
+                              "paid": "Paid", "held": "Held",
+                              "reversed": "Reversed", "cancelled": "Reversed"},
+    },
+    "12_Reseller_Payouts": {
+        "Payout Method": PAY_METHOD_TO_MANIFEST,
+        "Payout Status": {"draft": "Draft", "requested": "Awaiting Approval",
+                          "awaiting_approval": "Awaiting Approval",
+                          "approved": "Approved", "processing": "Processing",
+                          "paid": "Paid", "partial": "Partially Paid",
+                          "rejected": "Rejected"},
+    },
+    "13_Reseller_Wallet": {
+        "Entry Type": {"deposit_credit": "Deposit Credit", "package_debit": "Package Debit",
+                       "refund_credit": "Refund Credit",
+                       "manual_adjustment_credit": "Manual Adjustment Credit",
+                       "manual_adjustment_debit": "Manual Adjustment Debit",
+                       "opening_credit": "Deposit Credit", "sale_credit": "Package Debit",
+                       "commission": "Deposit Credit", "remittance_debit": "Package Debit",
+                       "payout_debit": "Package Debit",
+                       "adjustment": "Manual Adjustment Credit"},
+        "Wallet Status": {"pending": "Pending", "confirmed": "Confirmed",
+                          "reversed": "Reversed", "approved": "Confirmed",
+                          "void": "Reversed"},
+    },
+    "14_Referrals": {
+        "Reward Type": {"days": "Bonus Viewing Days", "cash": "Approved Discount",
+                        "discount": "Approved Discount", "none": "Other", "other": "Other"},
+        "Reward Status": {"pending": "Pending", "qualified": "Qualified",
+                          "approved": "Approved", "applied": "Applied",
+                          "paid": "Applied", "rejected": "Rejected"},
+    },
+    "15_Staff": {
+        "Role": {"sales": "Sales", "technician": "Technician", "support": "Support",
+                 "setup_agent": "Support", "finance": "Finance",
+                 "payment_verifier": "Finance", "manager": "Manager", "admin": "Admin"},
+        "Staff Status": {"active": "Active", "on_leave": "On Leave",
+                         "inactive": "Inactive", "suspended": "Inactive"},
+    },
+    "16_Support_Tickets": {
+        "Issue Type": {"login": "Login", "app_installation": "App Installation",
+                       "app_install": "App Installation", "buffering": "Buffering",
+                       "playback": "Playback", "channel_missing": "Playback",
+                       "subscription": "Subscription", "device": "Device",
+                       "billing": "Billing", "payment": "Billing", "trial": "Trial",
+                       "other": "Other"},
+        "Priority": {"low": "Low", "medium": "Normal", "normal": "Normal",
+                     "high": "High", "urgent": "Urgent"},
+        "Ticket Status": {"open": "New", "new": "New", "in_progress": "Investigating",
+                          "investigating": "Investigating",
+                          "waiting_customer": "Waiting Customer",
+                          "escalated": "Escalated", "resolved": "Resolved",
+                          "closed": "Closed"},
+    },
+    "17_Activities": {
+        "Activity Type": {"call": "Call", "whatsapp": "WhatsApp", "visit": "Visit",
+                          "demo": "Demo", "follow_up": "Follow-up",
+                          "followup": "Follow-up", "training": "Training",
+                          "payment_reminder": "Payment Reminder",
+                          "renewal_reminder": "Renewal Reminder",
+                          "price_sent": "WhatsApp", "quote_given": "WhatsApp",
+                          "handoff": "Other", "note": "Other", "other": "Other"},
+        "Status": {"planned": "Planned", "pending": "Planned", "due": "Due",
+                   "manual_pending": "Due", "done": "Completed",
+                   "completed": "Completed", "cancelled": "Cancelled"},
+        "Outcome": {"interested": "Interested", "no_answer": "No Answer",
+                    "need_follow_up": "Need Follow-up", "converted": "Converted",
+                    "not_interested": "Not Interested", "resolved": "Resolved",
+                    "other": "Other"},
+    },
+    "18_Service_Zones": {
+        "Installation Type": {"staff_visit": "Physical Visit",
+                              "physical_visit": "Physical Visit", "remote": "Remote",
+                              "remote_only": "Remote", "both": "Both"},
+        "Service Available": {"yes": "Yes", "no": "No", "on_request": "On Request",
+                              "Yes": "Yes", "No": "No", "On Request": "On Request"},
+    },
 }
 
-# Seed data: the 16 package rows from the owner's import file.
+
+def map_value(table: str, column: str, value):
+    """Translate a bot value to the manifest option label when a map exists."""
+    if value is None:
+        return None
+    col_map = VALUE_MAPS.get(table, {}).get(column)
+    if not col_map:
+        return value
+    s = str(value)
+    return col_map.get(s, col_map.get(s.lower(), value))
+
+
+def map_record(table: str, record: dict) -> dict:
+    """Apply VALUE_MAPS to every mapped column of a record dict."""
+    return {col: map_value(table, col, val) for col, val in record.items()}
+
+
+# Seed packages: prices from the owner's v6 workbook (PKG-01..16), manifest options.
 SEED_PACKAGES: list[dict] = [
     {"Package ID": "PKG-01", "Package Name": "1 Month / 1 Device", "Duration Months": 1, "Device Tier": "1 Device", "Minimum Devices": 1, "Reference Device Count": 1, "Unit Price SLE": 180, "Promotion Discount %": 20, "Trial Eligible": True, "Trial Hours": 24, "Available": "Yes", "Price Version": "v7-lark", "Package Notes": "4+ ties to PKG-04"},
     {"Package ID": "PKG-02", "Package Name": "1 Month / 2 Devices", "Duration Months": 1, "Device Tier": "2 Devices", "Minimum Devices": 2, "Reference Device Count": 2, "Unit Price SLE": 160, "Promotion Discount %": 20, "Trial Eligible": True, "Trial Hours": 24, "Available": "Yes", "Price Version": "v7-lark", "Package Notes": "4+ ties to PKG-04"},
