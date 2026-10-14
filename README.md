@@ -20,7 +20,7 @@ It speaks Spanish and English. It runs on a free NVIDIA NIM key or with no LLM a
 ## Try it in one minute (no Meta account, no keys)
 
 ```bash
-git clone https://github.com/AleBrito124356/whatsapp-ai-agent.git
+git clone <your-repository-url>
 cd whatsapp-ai-agent
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -352,15 +352,6 @@ In Panama and across Latin America, WhatsApp *is* the customer channel. A barber
 - brings in a person for anything that needs one, and gives that person a proper console.
 
 It does this in Spanish or English, on infrastructure that costs nothing to run. It is small enough to read in an afternoon and shaped like something you would actually deploy.
-
-## Related projects
-
-Part of a series of AI agent and automation blueprints by [@AleBrito124356](https://github.com/AleBrito124356):
-
-- [**support-agent-stack**](https://github.com/AleBrito124356/support-agent-stack): a complete customer-support AI agent with RAG, and the natural next layer under this bot.
-- [**telegram-ai-agents**](https://github.com/AleBrito124356/telegram-ai-agents): the same ideas on Telegram, with assistant, PDF-RAG and vision bots.
-- [**voice-agent-starter**](https://github.com/AleBrito124356/voice-agent-starter): a local voice assistant with whisper, NIM and edge-tts. The voice-note transcription here links to it.
-- [**rag-blueprints**](https://github.com/AleBrito124356/rag-blueprints): 8 RAG architectures, if you want to grow the FAQ retriever beyond BM25.
 
 ---
 

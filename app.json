@@ -1,7 +1,6 @@
 {
   "name": "NexgloTV WhatsApp AI Agent",
   "description": "WhatsApp AI Business Assistant for NexgloTV subscriptions in Sierra Leone",
-  "repository": "https://github.com/AleBrito124356/whatsapp-ai-agent",
   "keywords": ["whatsapp", "fastapi", "nexglotv", "ai", "lark", "openrouter"],
   "buildpacks": [
     {

@@ -4,9 +4,6 @@ WhatsApp voice notes arrive as OGG/Opus. We write the bytes to a temp file and
 run faster-whisper locally (CPU works; a GPU is faster). If faster-whisper or
 ffmpeg is not installed, we return None and the agent politely asks the user to
 type instead.
-
-Want a fuller local voice stack (mic in, TTS out)? See the sibling repo
-voice-agent-starter: https://github.com/AleBrito124356/voice-agent-starter
 """
 
 from __future__ import annotations
