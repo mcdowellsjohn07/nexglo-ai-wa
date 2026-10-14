@@ -53,3 +53,14 @@ def test_runtime_data_path_isolation(tmp_path, monkeypatch):
     assert not test_db.exists()
     test_db.parent.mkdir(parents=True, exist_ok=True)
     assert test_db.parent.exists()
+
+
+def test_botkeep_entrypoints():
+    import start
+    import botkeep_main
+    import main
+
+    assert hasattr(start, "run")
+    assert hasattr(botkeep_main, "run")
+    assert hasattr(main, "app")
+
