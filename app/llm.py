@@ -27,6 +27,22 @@ RECOMMENDED_OPENROUTER_MODELS = [
         "latency": "Fast (~600ms)",
     },
     {
+        "id": "meta-llama/llama-3.3-70b-instruct:free",
+        "name": "Llama 3.3 70B Instruct (Free Tier)",
+        "provider": "Meta via OpenRouter Free",
+        "description": "Completely 100% free tier hosted on OpenRouter. Perfect for zero-budget testing.",
+        "cost_per_m_tokens": "Free ($0.00)",
+        "latency": "Fast (~700ms)",
+    },
+    {
+        "id": "nvidia/llama-3.1-nemotron-70b-instruct",
+        "name": "NVIDIA Llama 3.1 Nemotron 70B",
+        "provider": "NVIDIA",
+        "description": "NVIDIA-tuned alignment model, outstanding for dialog, customer service, and structured tasks.",
+        "cost_per_m_tokens": "$0.35 input / $0.40 output",
+        "latency": "Fast (~600ms)",
+    },
+    {
         "id": "google/gemini-2.0-flash-001",
         "name": "Gemini 2.0 Flash",
         "provider": "Google",
@@ -59,6 +75,50 @@ RECOMMENDED_OPENROUTER_MODELS = [
         "latency": "Fast (~500ms)",
     },
 ]
+
+RECOMMENDED_NVIDIA_MODELS = [
+    {
+        "id": "meta/llama-3.3-70b-instruct",
+        "name": "Llama 3.3 70B Instruct (NVIDIA NIM Default)",
+        "provider": "Meta via NVIDIA NIM",
+        "description": "State-of-the-art open weights on NVIDIA GPU infrastructure with 1,000 free requests.",
+        "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
+        "latency": "Fast (~500ms)",
+    },
+    {
+        "id": "nvidia/llama-3.1-nemotron-70b-instruct",
+        "name": "NVIDIA Llama 3.1 Nemotron 70B",
+        "provider": "NVIDIA",
+        "description": "NVIDIA's customized model optimized for helpfulness, reasoning, and conversational customer care.",
+        "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
+        "latency": "Fast (~600ms)",
+    },
+    {
+        "id": "meta/llama-3.1-8b-instruct",
+        "name": "Llama 3.1 8B Instruct",
+        "provider": "Meta via NVIDIA NIM",
+        "description": "Ultra-lightweight model with lightning fast response times for simple customer inquiries.",
+        "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
+        "latency": "Ultra-fast (~200ms)",
+    },
+    {
+        "id": "mistralai/mistral-large-2-instruct",
+        "name": "Mistral Large 2",
+        "provider": "Mistral via NVIDIA NIM",
+        "description": "Top-tier 123B parameter European multilingual model hosted on NVIDIA NIM.",
+        "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
+        "latency": "Fast (~650ms)",
+    },
+    {
+        "id": "deepseek-ai/deepseek-r1",
+        "name": "DeepSeek R1",
+        "provider": "DeepSeek via NVIDIA NIM",
+        "description": "Deep reasoning model running on NVIDIA accelerated compute.",
+        "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
+        "latency": "Variable",
+    },
+]
+
 
 
 class LLMClient:

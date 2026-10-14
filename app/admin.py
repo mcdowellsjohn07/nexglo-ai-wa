@@ -216,15 +216,17 @@ class SelectModelIn(BaseModel):
 
 @router.get("/models")
 def list_models(desk: StaffDesk = Depends(staff_desk)) -> dict:
-    """List the active LLM model and recommended OpenRouter model catalog."""
-    from .llm import RECOMMENDED_OPENROUTER_MODELS
+    """List the active LLM model and recommended model catalog (OpenRouter or NVIDIA NIM)."""
+    from .llm import RECOMMENDED_NVIDIA_MODELS, RECOMMENDED_OPENROUTER_MODELS
 
     services = desk.services
+    is_nvidia = services.settings.llm_provider in ("nvidia", "nim")
+    recommended = RECOMMENDED_NVIDIA_MODELS if is_nvidia else RECOMMENDED_OPENROUTER_MODELS
     return {
         "provider": services.settings.llm_provider,
         "configured": services.llm.available,
         "current_model": services.llm.model,
-        "recommended": RECOMMENDED_OPENROUTER_MODELS,
+        "recommended": recommended,
     }
 
 
