@@ -72,18 +72,18 @@ class Settings:
     # None = automatic (dry-run whenever WhatsApp is not configured).
     dry_run_flag: Optional[bool] = None
 
-    # --- LLM (OpenRouter, OpenAI-compatible) ---
+    # --- LLM (OpenRouter or NVIDIA NIM, OpenAI-compatible) ---
     llm_provider: str = "openrouter"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct"
+    openrouter_model: str = "nvidia/nemotron-3.5-lightning:free"
     openrouter_timeout_seconds: int = 25
     openrouter_max_output_tokens: int = 500
 
-    # Legacy NVIDIA NIM (kept for backwards compatibility)
+    # NVIDIA NIM (Direct API via build.nvidia.com)
     nvidia_api_key: str = ""
     nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nim_model: str = "meta/llama-3.3-70b-instruct"
+    nim_model: str = "nvidia/nemotron-3.5-lightning"
 
     # --- Business profile ---
     business_name: str = "NexgloTV"
@@ -129,6 +129,19 @@ class Settings:
             return value.strip()
 
         db_path = get("DB_PATH")
+        configured_provider = get("LLM_PROVIDER")
+        openrouter_key = get("OPENROUTER_API_KEY")
+        nvidia_key = get("NVIDIA_API_KEY")
+
+        # Auto-detect provider if not explicitly defined
+        if not configured_provider:
+            if not is_placeholder(nvidia_key) and is_placeholder(openrouter_key):
+                resolved_provider = "nvidia"
+            else:
+                resolved_provider = "openrouter"
+        else:
+            resolved_provider = configured_provider.lower()
+
         return cls(
             whatsapp_token=get("WHATSAPP_TOKEN"),
             phone_number_id=get("WHATSAPP_PHONE_NUMBER_ID"),
@@ -136,15 +149,15 @@ class Settings:
             app_secret=get("WHATSAPP_APP_SECRET"),
             graph_api_version=get("GRAPH_API_VERSION", "v21.0"),
             dry_run_flag=_parse_bool(env.get("WHATSAPP_DRY_RUN")),
-            llm_provider=get("LLM_PROVIDER", "openrouter"),
-            openrouter_api_key=get("OPENROUTER_API_KEY"),
+            llm_provider=resolved_provider,
+            openrouter_api_key=openrouter_key,
             openrouter_base_url=get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            openrouter_model=get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct"),
+            openrouter_model=get("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free"),
             openrouter_timeout_seconds=int(get("OPENROUTER_TIMEOUT_SECONDS", "25")),
             openrouter_max_output_tokens=int(get("OPENROUTER_MAX_OUTPUT_TOKENS", "500")),
-            nvidia_api_key=get("NVIDIA_API_KEY"),
+            nvidia_api_key=nvidia_key,
             nim_base_url=get("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-            nim_model=get("NIM_MODEL", "meta/llama-3.3-70b-instruct"),
+            nim_model=get("NIM_MODEL", "nvidia/nemotron-3.5-lightning"),
             business_name=get("BUSINESS_NAME", "NexgloTV"),
             business_phone=get("BUSINESS_PHONE"),
             business_description=get("BUSINESS_DESCRIPTION", "Internet-based television and entertainment service in Sierra Leone"),

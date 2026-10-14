@@ -102,7 +102,7 @@ class FakeWhatsApp(WhatsAppClient):
 
 class OfflineLLM:
     available = False
-    model = "meta-llama/llama-3.3-70b-instruct"
+    model = "nvidia/nemotron-3.5-lightning:free"
 
     def set_model(self, model_name: str) -> str:
         self.model = model_name
@@ -121,7 +121,7 @@ class RecordingLLM:
         self.calls: list[list[dict]] = []
         self.answer = answer
         self.intent = intent
-        self.model = "meta-llama/llama-3.3-70b-instruct"
+        self.model = "nvidia/nemotron-3.5-lightning:free"
 
     def set_model(self, model_name: str) -> str:
         self.model = model_name
