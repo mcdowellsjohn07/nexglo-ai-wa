@@ -48,7 +48,10 @@ jobs:
           test -f runtime.txt || { echo "runtime.txt missing!"; exit 1; }
           test -f app.json || { echo "app.json missing!"; exit 1; }
           test -f data/schema.sql || { echo "data/schema.sql missing!"; exit 1; }
-          echo "All deployment manifests and schemas verified."
+          test -f main.py || { echo "main.py missing!"; exit 1; }
+          test -f botkeep_main.py || { echo "botkeep_main.py missing!"; exit 1; }
+          test -f Dockerfile || { echo "Dockerfile missing!"; exit 1; }
+          echo "All deployment manifests, schemas, and BotKeep entrypoints verified."
 
   # =========================================================================
   # 2. AUTOMATED TESTING (MATRIX: PYTHON 3.11 & 3.12)
