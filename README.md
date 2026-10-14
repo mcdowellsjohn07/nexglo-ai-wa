@@ -2,6 +2,7 @@
 
 **A WhatsApp AI agent on the Meta Cloud API. It has a signature-verified webhook, FAQ answers from your catalog and knowledge base, a validated and race-safe booking flow with self-service cancel and reschedule, and a human handoff that staff can actually work. It is bilingual (ES/EN) and built for LATAM small businesses.**
 
+[![CI/CD Pipeline](https://github.com/mcdowellsjohn07/nexglo-ai-wa/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/mcdowellsjohn07/nexglo-ai-wa/actions/workflows/ci-cd.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688.svg)](https://fastapi.tiangolo.com/)

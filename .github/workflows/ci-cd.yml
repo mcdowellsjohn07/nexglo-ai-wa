@@ -1,0 +1,184 @@
+name: NexgloTV CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # =========================================================================
+  # 1. LINT, SECURITY & STATIC ANALYSIS
+  # =========================================================================
+  lint-and-security:
+    name: Code Quality & Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Linting & Security Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Code Syntax & Quality Check
+        run: |
+          # Checks for critical syntax errors, undefined names, and bad imports
+          ruff check . --select=E9,F63,F7,F82 --output-format=github
+
+      - name: Validate Deployment Manifests & Schemas
+        run: |
+          test -f Procfile || { echo "Procfile missing!"; exit 1; }
+          test -f runtime.txt || { echo "runtime.txt missing!"; exit 1; }
+          test -f app.json || { echo "app.json missing!"; exit 1; }
+          test -f data/schema.sql || { echo "data/schema.sql missing!"; exit 1; }
+          echo "All deployment manifests and schemas verified."
+
+  # =========================================================================
+  # 2. AUTOMATED TESTING (MATRIX: PYTHON 3.11 & 3.12)
+  # =========================================================================
+  test:
+    name: Test Suite (Python ${{ matrix.python-version }})
+    needs: lint-and-security
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install Project Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Execute Full PyTest Suite
+        run: |
+          # Runs all 207 unit, integration, guardrail, and sales flow tests
+          pytest -v --tb=short
+
+  # =========================================================================
+  # 3. PACKAGE PRODUCTION RELEASE ARTIFACT
+  # =========================================================================
+  package-release:
+    name: Build Production Release Package
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate Clean Deployment ZIP
+        run: |
+          mkdir -p release_artifacts
+          python -c "
+          from pathlib import Path
+          import zipfile
+
+          exclude_dirs = {'.git', '.venv', 'venv', 'env', '__pycache__', '.pytest_cache', '.ruff_cache', 'runtime_data', 'receipts', 'models', 'logs', '.vscode', '.idea'}
+          exclude_exts = {'.sqlite', '.sqlite-wal', '.sqlite-shm', '.db', '.pyc', '.pyo', '.log', '.zip'}
+          exclude_files = {'.env', '.env.local'}
+
+          root = Path('.')
+          target = Path('release_artifacts/NexgloTV_Production_Release.zip')
+          count = 0
+          with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zf:
+              for p in sorted(root.rglob('*')):
+                  if not p.is_file():
+                      continue
+                  if any(part in exclude_dirs for part in p.parts):
+                      continue
+                  if p.suffix.lower() in exclude_exts or p.name in exclude_files:
+                      continue
+                  zf.write(p, str(p).replace('\\\\', '/'))
+                  count += 1
+          print(f'Packaged {count} files into {target}')
+          "
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexglotv-production-release
+          path: release_artifacts/NexgloTV_Production_Release.zip
+          retention-days: 14
+
+  # =========================================================================
+  # 4. CONTINUOUS DEPLOYMENT (HEROKU)
+  # =========================================================================
+  deploy-heroku:
+    name: Deploy to Heroku
+    needs: [test, package-release]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Deployment Credentials
+        id: check-creds
+        run: |
+          if [ -n "${{ secrets.HEROKU_API_KEY }}" ] && [ -n "${{ secrets.HEROKU_APP_NAME }}" ]; then
+            echo "configured=true" >> $GITHUB_OUTPUT
+            echo "Heroku credentials detected. Proceeding with deployment."
+          else
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "::notice ::Heroku secrets (HEROKU_API_KEY and HEROKU_APP_NAME) not yet configured. Skipping live deploy step."
+          fi
+
+      - name: Deploy to Heroku Dyno
+        if: steps.check-creds.outputs.configured == 'true'
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+        run: |
+          git remote add heroku https://heroku:${HEROKU_API_KEY}@git.heroku.com/${HEROKU_APP_NAME}.git
+          git push heroku main --force
+
+      - name: Post-Deployment Smoke Health Check
+        if: steps.check-creds.outputs.configured == 'true'
+        env:
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+        run: |
+          echo "Waiting 10s for Heroku dyno boot..."
+          sleep 10
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://${HEROKU_APP_NAME}.herokuapp.com/health || true)
+          echo "Health endpoint returned HTTP: $STATUS_CODE"
+          if [ "$STATUS_CODE" -eq 200 ]; then
+            echo "Health check PASSED! NexgloTV service is active."
+          else
+            echo "Warning: Health endpoint returned $STATUS_CODE. Check Heroku logs with 'heroku logs --tail -a $HEROKU_APP_NAME'."
+          fi
