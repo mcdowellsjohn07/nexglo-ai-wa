@@ -191,3 +191,30 @@ def test_bookings_listing_and_staff_cancellation(client, services, wa):
     cancelled = client.get("/admin/bookings", params={"status": "cancelled"}, headers=AUTH).json()
     assert cancelled["count"] == 1
     assert client.post("/admin/bookings/999/cancel", headers=AUTH).status_code == 404
+
+
+def test_models_listing_and_selection(client):
+    # Test GET /admin/models
+    resp = client.get("/admin/models", headers=AUTH)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["provider"] == "openrouter"
+    assert "current_model" in data
+    assert len(data["recommended"]) >= 5
+    assert any(m["id"] == "google/gemini-2.0-flash-001" for m in data["recommended"])
+
+    # Test POST /admin/models/select
+    sel_resp = client.post(
+        "/admin/models/select",
+        json={"model": "google/gemini-2.0-flash-001"},
+        headers=AUTH,
+    )
+    assert sel_resp.status_code == 200
+    sel_data = sel_resp.json()
+    assert sel_data["status"] == "success"
+    assert sel_data["current_model"] == "google/gemini-2.0-flash-001"
+
+    # Verify updated model reflected in GET /admin/models
+    after = client.get("/admin/models", headers=AUTH).json()
+    assert after["current_model"] == "google/gemini-2.0-flash-001"
+

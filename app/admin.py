@@ -209,3 +209,33 @@ def reseller_sync_portal(
         portal_base_token=portal_base_token,
     )
 
+
+class SelectModelIn(BaseModel):
+    model: str = Field(min_length=1)
+
+
+@router.get("/models")
+def list_models(desk: StaffDesk = Depends(staff_desk)) -> dict:
+    """List the active LLM model and recommended OpenRouter model catalog."""
+    from .llm import RECOMMENDED_OPENROUTER_MODELS
+
+    services = desk.services
+    return {
+        "provider": services.settings.llm_provider,
+        "configured": services.llm.available,
+        "current_model": services.llm.model,
+        "recommended": RECOMMENDED_OPENROUTER_MODELS,
+    }
+
+
+@router.post("/models/select")
+def select_model(body: SelectModelIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    """Hot-swap the active OpenRouter/LLM model dynamically without server restart."""
+    services = desk.services
+    new_model = services.llm.set_model(body.model)
+    return {
+        "status": "success",
+        "current_model": new_model,
+        "provider": services.settings.llm_provider,
+    }
+

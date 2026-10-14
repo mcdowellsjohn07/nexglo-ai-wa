@@ -17,6 +17,50 @@ from .config import Settings
 log = logging.getLogger("nexglo.llm")
 
 
+RECOMMENDED_OPENROUTER_MODELS = [
+    {
+        "id": "meta-llama/llama-3.3-70b-instruct",
+        "name": "Llama 3.3 70B Instruct (Default & Recommended)",
+        "provider": "Meta",
+        "description": "State-of-the-art open weights, excellent for customer service and high-speed WhatsApp chatting.",
+        "cost_per_m_tokens": "$0.12 input / $0.30 output",
+        "latency": "Fast (~600ms)",
+    },
+    {
+        "id": "google/gemini-2.0-flash-001",
+        "name": "Gemini 2.0 Flash",
+        "provider": "Google",
+        "description": "Blazing fast inference, native multilingual capabilities, and ultra-cheap token pricing.",
+        "cost_per_m_tokens": "$0.10 input / $0.40 output",
+        "latency": "Ultra-fast (~300ms)",
+    },
+    {
+        "id": "deepseek/deepseek-chat",
+        "name": "DeepSeek V3",
+        "provider": "DeepSeek",
+        "description": "Superb reasoning and instruction adherence with ultra-competitive pricing.",
+        "cost_per_m_tokens": "$0.14 input / $0.28 output",
+        "latency": "Fast (~700ms)",
+    },
+    {
+        "id": "anthropic/claude-3.5-haiku",
+        "name": "Claude 3.5 Haiku",
+        "provider": "Anthropic",
+        "description": "High brand safety, concise formatting, and great tone for formal customer care.",
+        "cost_per_m_tokens": "$0.80 input / $4.00 output",
+        "latency": "Fast (~650ms)",
+    },
+    {
+        "id": "openai/gpt-4o-mini",
+        "name": "GPT-4o Mini",
+        "provider": "OpenAI",
+        "description": "Highly consistent OpenAI compact model, fast and reliable worldwide.",
+        "cost_per_m_tokens": "$0.15 input / $0.60 output",
+        "latency": "Fast (~500ms)",
+    },
+]
+
+
 class LLMClient:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -33,7 +77,7 @@ class LLMClient:
                         api_key=settings.openrouter_api_key,
                         timeout=settings.openrouter_timeout_seconds,
                     )
-                    self._model = settings.openrouter_model
+                    self._model = settings.openrouter_model or "meta-llama/llama-3.3-70b-instruct"
                     # OpenRouter recommended headers
                     self._extra_headers = {
                         "HTTP-Referer": "https://nexglotv.com",
@@ -52,7 +96,9 @@ class LLMClient:
             except Exception as exc:  # pragma: no cover - import/config failure
                 log.warning("Could not initialise LLM client: %s", exc)
                 self._client = None
+                self._model = settings.openrouter_model or "meta-llama/llama-3.3-70b-instruct"
         else:
+            self._model = settings.openrouter_model or "meta-llama/llama-3.3-70b-instruct"
             log.warning(
                 "LLM API key not set. Running in offline mode "
                 "(keyword routing + raw KB answers)."
@@ -61,6 +107,18 @@ class LLMClient:
     @property
     def available(self) -> bool:
         return self._client is not None
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def set_model(self, model_name: str) -> str:
+        """Switch the active model dynamically without restarting."""
+        clean = model_name.strip()
+        if clean:
+            self._model = clean
+            log.info("Switched active LLM model to: %s", self._model)
+        return self._model
 
     def chat(
         self,

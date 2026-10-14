@@ -76,7 +76,7 @@ class Settings:
     llm_provider: str = "openrouter"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model: str = ""
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct"
     openrouter_timeout_seconds: int = 25
     openrouter_max_output_tokens: int = 500
 
@@ -139,7 +139,7 @@ class Settings:
             llm_provider=get("LLM_PROVIDER", "openrouter"),
             openrouter_api_key=get("OPENROUTER_API_KEY"),
             openrouter_base_url=get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            openrouter_model=get("OPENROUTER_MODEL"),
+            openrouter_model=get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct"),
             openrouter_timeout_seconds=int(get("OPENROUTER_TIMEOUT_SECONDS", "25")),
             openrouter_max_output_tokens=int(get("OPENROUTER_MAX_OUTPUT_TOKENS", "500")),
             nvidia_api_key=get("NVIDIA_API_KEY"),

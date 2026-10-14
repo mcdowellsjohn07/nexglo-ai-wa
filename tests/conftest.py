@@ -102,6 +102,11 @@ class FakeWhatsApp(WhatsAppClient):
 
 class OfflineLLM:
     available = False
+    model = "meta-llama/llama-3.3-70b-instruct"
+
+    def set_model(self, model_name: str) -> str:
+        self.model = model_name
+        return self.model
 
     def chat(self, messages, temperature=0.3, max_tokens=600):
         return None
@@ -116,6 +121,11 @@ class RecordingLLM:
         self.calls: list[list[dict]] = []
         self.answer = answer
         self.intent = intent
+        self.model = "meta-llama/llama-3.3-70b-instruct"
+
+    def set_model(self, model_name: str) -> str:
+        self.model = model_name
+        return self.model
 
     def chat(self, messages, temperature=0.3, max_tokens=600):
         self.calls.append(messages)
