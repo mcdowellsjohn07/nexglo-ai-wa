@@ -10,12 +10,15 @@ Track every required configuration value before going live.
 | Phone Number ID | `WHATSAPP_PHONE_NUMBER_ID` | ☐ | From Meta WhatsApp > API Setup |
 | App Secret | `WHATSAPP_APP_SECRET` | ☐ | Meta App Settings > Basic |
 | Verify Token | `WHATSAPP_VERIFY_TOKEN` | ☐ | Random string, match Meta config |
-| OpenRouter API Key | `OPENROUTER_API_KEY` | ☐ | From openrouter.ai |
-| OpenRouter Model | `OPENROUTER_MODEL` | ☐ | Valid model slug (e.g., `anthropic/claude-3.5-sonnet`) |
+| OpenRouter API Key | `OPENROUTER_API_KEY` | ☐ | From openrouter.ai (Option A) |
+| OpenRouter Model | `OPENROUTER_MODEL` | ☐ | Default: `nvidia/nemotron-3.5-lightning:free` |
+| NVIDIA NIM API Key | `NVIDIA_API_KEY` | ☐ | From build.nvidia.com (Option B) |
+| NVIDIA NIM Model | `NIM_MODEL` | ☐ | Default: `nvidia/nemotron-3.5-lightning` |
 | Google Sheet ID | `GOOGLE_SHEET_ID` | ☐ | From spreadsheet URL |
 | Google Service Account | `GOOGLE_SERVICE_ACCOUNT_JSON` | ☐ | Base64-encoded JSON key |
 | BotKeep Domain | `PUBLIC_BASE_URL` | ☐ | `https://<app>.botkeep.cloud` |
 | Admin Token | `ADMIN_TOKEN` | ☐ | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+
 
 ## High Priority (Feature Complete)
 

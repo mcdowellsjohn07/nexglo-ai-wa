@@ -152,13 +152,22 @@ WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
 WHATSAPP_APP_SECRET=your_app_secret
 WHATSAPP_VERIFY_TOKEN=your_verify_token
 
-# Required - OpenRouter
+# Required - LLM Provider (Choose Option A or Option B)
+# Option A: OpenRouter (Default: Free NVIDIA Nemotron 3.5 Lightning)
+LLM_PROVIDER=openrouter
 OPENROUTER_API_KEY=your_openrouter_key
-OPENROUTER_MODEL=your_model_slug
+OPENROUTER_MODEL=nvidia/nemotron-3.5-lightning:free
 
-# Required - Google Sheets
+# Option B: Direct NVIDIA NIM (1,000 Free Credits from build.nvidia.com)
+# LLM_PROVIDER=nvidia
+# NVIDIA_API_KEY=nvapi-your-key-here
+# NIM_MODEL=nvidia/nemotron-3.5-lightning
+
+# Required - Google Sheets / Lark CRM
 GOOGLE_SHEET_ID=your_sheet_id
 GOOGLE_SERVICE_ACCOUNT_JSON=your_base64_json
+CRM_PROVIDER=lark_base
+LARK_BASE_TOKEN=E8jObNOAeaZqUHsyxRHjR9VcpBg
 
 # Required - BotKeep
 SERVER_PORT=8000

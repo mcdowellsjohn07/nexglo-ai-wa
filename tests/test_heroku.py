@@ -32,6 +32,9 @@ def test_heroku_app_json_valid():
     assert data["name"] == "NexgloTV WhatsApp AI Agent"
     assert "env" in data
     assert "WHATSAPP_VERIFY_TOKEN" in data["env"]
+    assert "NVIDIA_API_KEY" in data["env"]
+    assert "OPENROUTER_API_KEY" in data["env"]
+
 
 
 def test_heroku_app_health():

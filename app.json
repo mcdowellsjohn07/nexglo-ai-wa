@@ -77,8 +77,8 @@
       "value": "https://openrouter.ai/api/v1"
     },
     "OPENROUTER_MODEL": {
-      "description": "OpenRouter Model ID",
-      "value": "meta-llama/llama-3.3-70b-instruct"
+      "description": "OpenRouter Model ID (defaults to free NVIDIA Nemotron)",
+      "value": "nvidia/nemotron-3.5-lightning:free"
     },
     "OPENROUTER_TIMEOUT_SECONDS": {
       "description": "LLM request timeout in seconds",
@@ -87,6 +87,18 @@
     "OPENROUTER_MAX_OUTPUT_TOKENS": {
       "description": "LLM maximum output tokens",
       "value": "500"
+    },
+    "NVIDIA_API_KEY": {
+      "description": "NVIDIA NIM API Key from build.nvidia.com (starts with nvapi-)",
+      "required": false
+    },
+    "NIM_BASE_URL": {
+      "description": "NVIDIA NIM API Base URL",
+      "value": "https://integrate.api.nvidia.com/v1"
+    },
+    "NIM_MODEL": {
+      "description": "NVIDIA NIM Model ID",
+      "value": "nvidia/nemotron-3.5-lightning"
     },
     "CRM_PROVIDER": {
       "description": "CRM backend: lark_base, google_sheets, or mock",
