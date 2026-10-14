@@ -127,8 +127,18 @@ class WhatsAppClient:
     def send_text(self, to: str, body: str, preview_url: bool = False) -> Optional[dict]:
         return self.send_payload(P.text_payload(to, body, preview_url))
 
-    def send_image(self, to: str, link: str, caption: str = "") -> Optional[dict]:
-        return self.send_payload(P.image_payload(to, link, caption))
+    def send_image(
+        self,
+        to: str,
+        link: str = "",
+        caption: str = "",
+        *,
+        media_id: str = "",
+        image_url: str = "",
+    ) -> Optional[dict]:
+        return self.send_payload(
+            P.image_payload(to, link=link, caption=caption, media_id=media_id, image_url=image_url)
+        )
 
     def send_buttons(self, to: str, body: str, buttons: list[dict], header: str = "") -> Optional[dict]:
         """buttons: list of {"id": str, "title": str} (max 3, title <= 20 chars)."""

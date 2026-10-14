@@ -81,6 +81,7 @@ def test_taken_slot_is_rejected_when_tapped_from_an_old_list(agent, store, wa):
 # ------------------------------------------------- forged / stale payloads
 def test_forged_payloads_from_idle_create_nothing(agent, store, wa):
     """Audit BUG C: svc:svc_tinte, a Sunday, 03:00, a name and confirm:yes."""
+    expired_msgs = {t("option_expired", "es"), t("option_expired", "en")}
     for msg in (
         tap_msg(EVE, "svc:svc_tinte"),
         tap_msg(EVE, "date:2026-09-27"),
@@ -91,7 +92,7 @@ def test_forged_payloads_from_idle_create_nothing(agent, store, wa):
         agent.handle_message(msg)
     assert store.list_bookings(status=None) == []
     assert store.get_conversation(EVE).state != "booking_confirm"
-    assert sum(1 for m in wa.outbound() if m["body"] == EXPIRED_ES) == 4
+    assert sum(1 for m in wa.outbound() if m["body"] in expired_msgs) == 4
 
 
 @pytest.mark.parametrize(
@@ -226,9 +227,9 @@ def test_name_step_rejects_non_names_and_answers_questions(agent, store, wa):
     book_until_name(agent, ANA)
     agent.handle_message(text_msg(ANA, "12345"))
     assert wa.last("text")["body"] == t("name_invalid", "es")
-    agent.handle_message(text_msg(ANA, "¿tienen estacionamiento?"))
+    agent.handle_message(text_msg(ANA, "¿aceptan pagos por Orange Money?"))
     texts = [m["body"] for m in wa.outbound()[-2:]]
-    assert "estacionamiento" in texts[0].lower()
+    assert "orange money" in texts[0].lower()
     assert texts[1] == t("ask_name", "es")
     assert store.get_conversation(ANA).state == "booking_name"
     agent.handle_message(text_msg(ANA, "Ana María"))

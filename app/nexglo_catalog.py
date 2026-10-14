@@ -56,7 +56,7 @@ STRINGS: dict[str, tuple[str, str]] = {
         "Hi! 👋 I'm the NexgloTV assistant. How can I help today?",
     ),
     "menu_packages": ("Ver paquetes", "View packages"),
-    "menu_devices": ("Dispositivos e instalación", "Devices & installation"),
+    "menu_devices": ("Dispositivos y apps", "Devices & installation"),
     "menu_renewal": ("Renovar suscripción", "Renew subscription"),
     "menu_support": ("Soporte técnico", "Technical support"),
     "menu_human": ("Hablar con alguien", "Talk to a person"),
@@ -95,8 +95,8 @@ STRINGS: dict[str, tuple[str, str]] = {
         "We can help you install and test the service **before you pay** for the subscription.\n"
         "Are you comfortable paying once we confirm it works?",
     ),
-    "quote_ready_yes": ("Sí, listo para pagar tras probar", "Yes, ready to pay after testing"),
-    "quote_ready_no": ("No, quiero pensarlo", "No, I want to think about it"),
+    "quote_ready_yes": ("Sí, listo para pagar", "Yes, ready to pay"),
+    "quote_ready_no": ("Lo voy a pensar", "Let me think"),
     "quote_change": ("Cambiar paquete", "Change package"),
 
     # ---------------------------------------------------------- device select
@@ -126,8 +126,8 @@ STRINGS: dict[str, tuple[str, str]] = {
         "If you'd prefer our team to visit, a location-based service fee may apply.\n\n"
         "Would you rather self-install with our help or arrange a visit?",
     ),
-    "install_self": ("Autoinstalación guiada (gratis)", "Guided self-install (free)"),
-    "install_visit": ("Visita del equipo (cargo por zona)", "Staff visit (area-based fee)"),
+    "install_self": ("Instalar yo (gratis)", "Self-install (free)"),
+    "install_visit": ("Visita del equipo", "Staff visit (fee)"),
     "area_prompt": (
         "Entendido. ¿En qué zona/ciudad estás? El equipo confirmará el cargo exacto antes de agendar.",
         "Got it. What area/city are you in? The team will confirm the exact fee before booking.",
@@ -204,6 +204,10 @@ STRINGS: dict[str, tuple[str, str]] = {
         "Gracias 🙏 Hemos recibido tu información de pago. Nuestro equipo la verificará contra los registros oficiales antes de confirmar tu suscripción.",
         "Thank you 🙏 We've received your payment information. Our team will verify it against official payment records before confirming your subscription.",
     ),
+    "payment_verified": (
+        "🎉 ¡Pago confirmado! Tu suscripción de NexgloTV ({package}) ya está activa (vigencia: {expires}). ¡Gracias por elegir NexgloTV!",
+        "🎉 Payment confirmed! Your NexgloTV subscription ({package}) is now active (expires: {expires}). Thank you for choosing NexgloTV!",
+    ),
 
     # ------------------------------------------------------------ trials
     "trial_available": (
@@ -264,6 +268,22 @@ STRINGS: dict[str, tuple[str, str]] = {
         "Listo, volvamos a empezar. 👋",
         "Done, let's start fresh. 👋",
     ),
+    "booking_cancelled": (
+        "Proceso cancelado. Si necesitas algo más, escribe *menú*. 👋",
+        "Process cancelled. If you need anything else, type *menu*. 👋",
+    ),
+    "audio_heard": (
+        "🎤 Escuché: «{text}»",
+        "🎤 Heard: \"{text}\"",
+    ),
+    "audio_unsupported": (
+        "No pude transcribir tu nota de voz. ¿Podrías escribirlo por texto o elegir una opción del menú?",
+        "I couldn't transcribe your voice note. Could you type your message or pick an option from the menu?",
+    ),
+    "image_received": (
+        "Recibimos tu imagen. Un miembro de nuestro equipo la revisará enseguida.",
+        "We received your image. A team member will review it shortly.",
+    ),
     "option_expired": (
         "Esa opción ya no está disponible. 🙏 Te muestro las actuales:",
         "That option is no longer available. 🙏 Here are the current ones:",
@@ -315,6 +335,32 @@ STRINGS: dict[str, tuple[str, str]] = {
         "NexgloTV is an internet TV service, not satellite. No satellite dish needed.\n"
         "We offer many sports, news, movie and series channels, but **don't guarantee all DStv/SuperSport channels** or specific leagues 24/7.\n"
         "Tell me what channel or league you want and I'll check current availability.",
+    ),
+
+    # ----------------------------------------------------------- automations
+    "auto_followup_quote": (
+        "¡Hola! 👋 Solo paso a revisar si tienes alguna duda sobre los paquetes de **NexgloTV** o la instalación.\n"
+        "Recuerda que configuramos tu dispositivo primero y pagas solo después de ver que funciona. Responde cuando quieras continuar.",
+        "Hi there! 👋 Just checking in to see if you have any questions about **NexgloTV** packages or setup.\n"
+        "Remember, we set up your device first and you only pay after you confirm it works. Reply whenever you're ready to continue!",
+    ),
+    "auto_trial_expired": (
+        "⏰ Tu prueba gratis de **NexgloTV** ha finalizado.\n"
+        "¿Te gustó el servicio? Si deseas activar tu suscripción completa ahora, responde con el paquete que prefieras (por ejemplo *1 mes 1 dispositivo*) y lo dejamos activo enseguida.",
+        "⏰ Your **NexgloTV** free trial has ended.\n"
+        "How did you like the service? If you'd like to activate your full subscription now, reply with your preferred package (e.g. *1 month 1 device*) and we'll get you set up right away.",
+    ),
+    "auto_payment_reminder": (
+        "Hola 👋, tu configuración de **NexgloTV** ya está verificada y lista.\n"
+        "Para mantener tu cuenta activa, envíanos una foto o captura de tu comprobante de pago por aquí cuando lo tengas listo.",
+        "Hi there 👋, your **NexgloTV** setup is verified and ready.\n"
+        "To keep your account active, please send a photo or screenshot of your payment receipt here whenever you're ready.",
+    ),
+    "auto_renewal_reminder": (
+        "🔔 Hola 👋, tu suscripción de **NexgloTV** ({package}) vence pronto ({expires}).\n"
+        "¿Deseas renovar ahora para seguir disfrutando sin interrupciones? Responde *renovar* para continuar.",
+        "🔔 Hi there 👋, your **NexgloTV** subscription ({package}) expires soon ({expires}).\n"
+        "Would you like to renew now for uninterrupted viewing? Reply *renew* to continue.",
     ),
 }
 

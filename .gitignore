@@ -14,7 +14,13 @@ __pycache__/
 venv/
 env/
 
-# Generated SQLite databases (schema.sql is the source of truth and IS tracked)
+# Runtime data & generated databases (schema.sql is tracked)
+runtime_data/
+receipts/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
 data/*.sqlite
 data/*.sqlite-wal
 data/*.sqlite-shm
@@ -34,3 +40,6 @@ logs/
 *.log
 *.png
 lark_*_qr.png
+data/payments.yaml
+data/approved_apps.json
+*.zip

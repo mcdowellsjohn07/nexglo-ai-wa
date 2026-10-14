@@ -59,15 +59,15 @@ def test_example_matches_golden_transcript(name, tmp_path):
 
 def test_interactive_stdin_mode_and_db_views(tmp_path):
     db = tmp_path / "chat.sqlite"
-    stdin = io.StringIO("quiero una cita\n1\n1\n1\nLuis\n1\n/state\n/quit\n")
+    stdin = io.StringIO("hola\n1\n3 meses 2 dispositivos\n/state\n/quit\n")
     out = io.StringIO()
     main(["chat", "--offline", "--now", "2026-09-24T09:00", "--db", str(db)], settings=Settings(), stdin=stdin, stdout=out)
     text = out.getvalue()
-    assert "¡Listo, Luis!" in text and "state=idle" in text
+    assert "Le900" in text and "state=package_selected" in text
 
     views = io.StringIO()
     main(["bookings", "--db", str(db)], settings=Settings(), stdout=views)
-    assert "2026-09-24 10:00  confirmed Luis" in views.getvalue()
+    assert "(no bookings)" in views.getvalue()
     handoffs = io.StringIO()
     main(["handoffs", "--db", str(db)], settings=Settings(), stdout=handoffs)
     assert "(no open handoffs)" in handoffs.getvalue()
@@ -77,7 +77,7 @@ def test_forged_tap_is_rejected_in_the_simulator(tmp_path):
     stdin = io.StringIO("/tap time:03:00 03:00\n/bookings\n")
     out = io.StringIO()
     main(["chat", "--offline", "--now", "2026-09-24T09:00", "--db", str(tmp_path / "f.sqlite")], settings=Settings(), stdin=stdin, stdout=out)
-    assert "Esa opción ya no está disponible" in out.getvalue()
+    assert ("Esa opción ya no está disponible" in out.getvalue()) or ("That option is no longer available" in out.getvalue())
     assert "(no bookings)" in out.getvalue()
 
 

@@ -119,6 +119,8 @@ class ChatSimulator:
         self.say(format_rendered(view))
         if view.kind in ("buttons", "list"):
             self.options = view.options
+        else:
+            self.options = []
 
     # -------------------------------------------------------------- input
     def _message(self, **fields) -> InboundMessage:
@@ -236,7 +238,7 @@ def print_bookings(rows: list[dict], out: TextIO) -> None:
 
 # --------------------------------------------------------------------- main
 def _existing_store(settings: Settings, db: Optional[str]):
-    from .state import Store
+    from .nexglo_state import Store
 
     path = Path(db) if db else settings.db_path
     if not path.exists():

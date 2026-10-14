@@ -18,6 +18,7 @@ from typing import Optional
 
 import httpx
 
+from .automations import AutomationRunner
 from .clock import Clock, system_clock
 from .config import Settings, get_settings
 from .crm_sheets import CRMService, create_crm_provider
@@ -42,6 +43,8 @@ class Services:
     crm: CRMService
     media: MediaService
     clock: Clock
+    automations: Optional[AutomationRunner] = None
+    reseller_mgr: Optional[Any] = None
 
 
 def build_services(
@@ -98,6 +101,9 @@ def build_services(
     # Update media with wa client
     media.wa = wa
 
+    from .reseller_bot import ResellerBotManager
+    reseller_mgr = ResellerBotManager(getattr(crm, "provider", None))
+
     agent = Agent(
         settings=settings,
         wa=wa,
@@ -107,8 +113,9 @@ def build_services(
         crm=crm,
         media=media,
         clock=clock,
+        reseller_mgr=reseller_mgr,
     )
-    return Services(
+    svc = Services(
         settings=settings,
         store=store,
         kb=kb,
@@ -118,7 +125,10 @@ def build_services(
         crm=crm,
         media=media,
         clock=clock,
+        reseller_mgr=reseller_mgr,
     )
+    svc.automations = AutomationRunner(svc)
+    return svc
 
 
 # --------------------------------------------------------------- default app

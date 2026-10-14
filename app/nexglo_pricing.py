@@ -10,13 +10,13 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
-# Base prices in Leones (before discount)
-# Structure: {months: {device_count: price}}
+# Base regular list prices in Leones (before 20% promotional discount)
+# Structure: {months: {device_count: regular_list_price}}
 BASE_PRICES = {
-    1:  {1: 180, 2: 320, 3: 420, "4+": 120},
-    3:  {1: 500, 2: 900, 3: 1200, "4+": 340},
-    6:  {1: 950, 2: 1700, 3: 2250, "4+": 640},
-    12: {1: 1800, 2: 3200, 3: 4200, "4+": 1200},
+    1:  {1: 225, 2: 400, 3: 525, "4+": 150},
+    3:  {1: 625, 2: 1125, 3: 1500, "4+": 425},
+    6:  {1: 1188, 2: 2125, 3: 2813, "4+": 800},
+    12: {1: 2250, 2: 4000, 3: 5250, "4+": 1500},
 }
 
 DEFAULT_DISCOUNT_PCT = 20
@@ -37,7 +37,7 @@ class PriceQuote:
     promo_active: bool = True
 
     def formatted_total(self) -> str:
-        """Return formatted price like 'Le720'."""
+        """Return formatted price like 'Le180'."""
         return f"{self.currency}{self.final_price:,}"
 
     def formatted_breakdown(self) -> str:
@@ -83,7 +83,7 @@ def calculate_price(
         raise PricingError("Discount percent must be 0-100")
 
     base = _get_base_price(months, device_count)
-    discount_amount = base * discount_pct // 100
+    discount_amount = round(base * discount_pct / 100)
     final = base - discount_amount
 
     return PriceQuote(
@@ -132,20 +132,20 @@ def format_price_card(quotes: list[PriceQuote], currency: str = "Le") -> str:
 
 
 def parse_package_selection(text: str) -> Optional[tuple[int, int]]:
-    """Extract (months, device_count) from user text like '3 months 2 devices'."""
+    """Extract (months, device_count) from user text like '3 months 2 devices' or '3 meses 2 dispositivos'."""
     import re
 
     text = text.lower().strip()
 
-    # Pattern: "3 months 2 devices" or "3m 2d" or "3 month for 2"
-    month_match = re.search(r'(\d+)\s*(?:month|months?|m)\b', text)
-    device_match = re.search(r'(\d+)\s*(?:device|devices?|d)\b', text)
+    # Pattern: "3 months 2 devices", "3 meses 2 dispositivos", "3m 2d", "3mo 2dev"
+    month_match = re.search(r'(\d+)\s*(?:months?|mo|meses|mes|m)\b', text)
+    device_match = re.search(r'(\d+)\s*(?:devices?|dev|dispositivos?|disp|equipos?|pantallas?|d)\b', text)
 
-    # Alternative: "for 2 devices" or "2 devices for 3 months"
+    # Alternative: "for 2 devices" / "para 2 dispositivos"
     if not device_match:
-        device_match = re.search(r'for\s+(\d+)\s*(?:device|devices?)', text)
+        device_match = re.search(r'(?:for|para)\s+(\d+)\s*(?:devices?|dispositivos?|equipos?|pantallas?)?', text)
     if not month_match:
-        month_match = re.search(r'(\d+)\s*(?:month|months?)\s*(?:for|$)', text)
+        month_match = re.search(r'(\d+)\s*(?:months?|meses|mes)\s*(?:for|para|$)', text)
 
     if month_match and device_match:
         months = int(month_match.group(1))

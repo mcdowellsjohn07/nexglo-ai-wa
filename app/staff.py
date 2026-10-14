@@ -17,7 +17,7 @@ both call it, so the rules live in one place:
 from __future__ import annotations
 
 from datetime import date as date_cls
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .clock import from_db
@@ -41,7 +41,7 @@ def _pretty(iso: str, lang: str) -> str:
         day = date_cls.fromisoformat(iso)
     except ValueError:
         return iso
-    from .nexglo_catalog import DAY_ABBR, MONTH_ABBR
+    from .catalog import DAY_ABBR, MONTH_ABBR
     return f"{DAY_ABBR[lang][day.weekday()]} {day.day} {MONTH_ABBR[lang][day.month - 1]}"
 
 
@@ -195,10 +195,10 @@ class StaffDesk:
         return {"wa_id": wa_id, "resolved": closed, "bot_active": True, "notified": notified, "note": note}
 
     # ------------------------------------------------------------ payment/lead actions
-    def verify_payment(self, wa_id: str, payment_id: str, verified_by: str) -> dict:
+    def verify_payment(self, wa_id: str, payment_id: str = "", verified_by: str = "staff") -> dict:
         """Mark payment as verified and convert lead to customer."""
         conv = self._conversation(wa_id)
-        lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, 'get_lead_by_wa_id') else None
+        lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, "get_lead_by_wa_id") else None
         if not lead:
             raise StaffError(404, "not_found", "No lead found for this contact")
 
@@ -210,12 +210,25 @@ class StaffDesk:
         if not customer:
             raise StaffError(500, "conversion_failed", "Failed to convert lead to customer")
 
-        # Resolve handoff if active
+        # Mark conversation as existing customer and resolve handoff if active
+        self.store.set_customer_flag(wa_id, True, customer.customer_id)
         if conv.handoff:
             self.store.set_handoff(wa_id, False)
-            self.store.set_state(wa_id, State.IDLE)
-            self.store.clear_draft(wa_id)
             self.store.resolve_handoffs(wa_id, by="staff")
+        self.store.set_state(wa_id, State.CONVERTED)
+        self.store.clear_draft(wa_id)
+
+        # Notify customer if within 24h window
+        ok, _ = self._can_message(conv)
+        if ok:
+            pkg_label = f"{customer.subscription_months}m × {customer.device_count}d"
+            body = t(
+                "payment_verified",
+                conv.lang,
+                package=pkg_label,
+                expires=customer.subscription_expires_at or "active",
+            )
+            self._send(wa_id, body, author="bot")
 
         return {
             "wa_id": wa_id,
@@ -225,45 +238,45 @@ class StaffDesk:
             "converted": True,
         }
 
-    def approve_trial(self, wa_id: str, duration_hours: int, approved_by: str) -> dict:
-            """Approve a free trial for a lead."""
-            conv = self._conversation(wa_id)
-            lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, 'get_lead_by_wa_id') else None
-            if not lead:
-                raise StaffError(404, "not_found", "No lead found for this contact")
-
-            # Update lead
-            self.crm.update_lead_stage(
-                wa_id,
-                "TRIAL_APPROVAL",
-                trial_status="approved",
-                approval_status="approved",
-                approved_by=approved_by,
-            )
-
-            # Record trial
-            trial = TrialRecord(
-                trial_id="",
-                lead_id=lead.lead_id,
-                requested_at=lead.last_message_at,
-                offered_at=datetime.utcnow().isoformat(),
-                approval_status="approved",
-                approved_by=approved_by,
-                duration_policy=f"{duration_hours}h",
-                start_at=datetime.utcnow().isoformat(),
-                end_at=(datetime.utcnow() + timedelta(hours=duration_hours)).isoformat(),
-                trial_status="active",
-                converted_to_paid=False,
-                note=f"Approved by {approved_by}",
-            )
-            self.crm.provider.upsert_trial(trial)
-
-            return {"wa_id": wa_id, "trial_approved": True, "duration_hours": duration_hours}
-
-    def issue_visit_quote(self, wa_id: str, fee_le: int, approved_by: str) -> dict:
-        """Issue a visit fee quote for a lead."""
+    def approve_trial(self, wa_id: str, duration_hours: int = 24, approved_by: str = "staff") -> dict:
+        """Approve a free trial for a lead."""
         conv = self._conversation(wa_id)
-        lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, 'get_lead_by_wa_id') else None
+        lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, "get_lead_by_wa_id") else None
+        if not lead:
+            raise StaffError(404, "not_found", "No lead found for this contact")
+
+        now = datetime.now(timezone.utc)
+        self.crm.update_lead_stage(
+            wa_id,
+            "TRIAL_APPROVAL",
+            trial_status="approved",
+            approval_status="approved",
+            approved_by=approved_by,
+        )
+
+        trial = TrialRecord(
+            trial_id="",
+            lead_id=lead.lead_id,
+            requested_at=lead.last_message_at,
+            offered_at=now.isoformat(),
+            approval_status="approved",
+            approved_by=approved_by,
+            duration_policy=f"{duration_hours}h",
+            start_at=now.isoformat(),
+            end_at=(now + timedelta(hours=duration_hours)).isoformat(),
+            trial_status="active",
+            converted_to_paid=False,
+            note=f"Approved by {approved_by}",
+        )
+        self.crm.provider.upsert_trial(trial)
+        self.store.set_state(wa_id, State.TRIAL_ACTIVE)
+
+        return {"wa_id": wa_id, "trial_approved": True, "duration_hours": duration_hours}
+
+    def issue_visit_quote(self, wa_id: str, fee_le: int, approved_by: str = "staff") -> dict:
+        """Issue a visit fee quote for a lead."""
+        self._conversation(wa_id)
+        lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, "get_lead_by_wa_id") else None
         if not lead:
             raise StaffError(404, "not_found", "No lead found for this contact")
 
@@ -276,10 +289,10 @@ class StaffDesk:
 
         return {"wa_id": wa_id, "visit_fee_quote_le": fee_le, "approved_by": approved_by}
 
-    def confirm_setup(self, wa_id: str, staff_name: str) -> dict:
+    def confirm_setup(self, wa_id: str, staff_name: str = "staff") -> dict:
         """Confirm that setup is working on customer's device."""
         conv = self._conversation(wa_id)
-        lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, 'get_lead_by_wa_id') else None
+        lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, "get_lead_by_wa_id") else None
         if not lead:
             raise StaffError(404, "not_found", "No lead found for this contact")
 
@@ -288,29 +301,77 @@ class StaffDesk:
         # If handoff was active, resolve it
         if conv.handoff:
             self.store.set_handoff(wa_id, False)
-            self.store.set_state(wa_id, State.SETUP_VERIFIED)
             self.store.clear_draft(wa_id)
             self.store.resolve_handoffs(wa_id, by="staff")
 
-        # Send payment due message
+        # Send payment due message and transition to PAYMENT_DUE
         from .nexglo_pricing import PriceQuote
         quote = PriceQuote(
-            months=lead.months,
-            device_count=lead.device_count,
+            months=lead.months or 1,
+            device_count=lead.device_count or 1,
             base_price=0,
             discount_pct=lead.discount_pct,
             discount_amount=0,
             final_price=lead.subscription_quote_le,
         )
+        self.crm.record_payment_due(wa_id, quote)
+        self.store.set_state(wa_id, State.PAYMENT_DUE)
+
         from .nexglo_catalog import pluralize
-        months_plural = pluralize(lead.months, conv.lang)
-        devices_plural = pluralize(lead.device_count, conv.lang)
+        months = lead.months or 1
+        devices = lead.device_count or 1
+        months_plural = pluralize(months, conv.lang)
+        devices_plural = "" if devices == 1 else "s"
         body = t(
-            "payment_due", conv.lang,
-            months=lead.months, months_plural=months_plural,
-            devices=lead.device_count, devices_plural=devices_plural,
+            "payment_due",
+            conv.lang,
+            months=months,
+            months_plural=months_plural,
+            devices=devices,
+            devices_plural=devices_plural,
             total=f"Le{lead.subscription_quote_le:,}",
         )
         self._send(wa_id, body, author="bot")
 
         return {"wa_id": wa_id, "setup_verified": True, "payment_due_sent": True}
+
+    # ------------------------------------------------------------ legacy bookings compatibility
+    def bookings(self, date: Optional[str] = None, status: str = "confirmed") -> list[dict]:
+        """Return bookings/installations list (retained for /admin/bookings compatibility)."""
+        if date is not None:
+            try:
+                date_cls.fromisoformat(date)
+            except ValueError:
+                raise StaffError(422, "bad_date", f"Invalid date {date!r}; expected YYYY-MM-DD.")
+        st = None if status == "all" else status
+        from_date = None if (date or status != "confirmed") else self.clock().date().isoformat()
+        return self.store.list_bookings(date=date, from_date=from_date, status=st)
+
+    def cancel_booking(self, booking_id: int, notify: bool = True) -> dict:
+        """Cancel a booking by ID (retained for /admin/bookings/{id}/cancel compatibility)."""
+        booking = self.store.get_booking(booking_id)
+        if not booking:
+            raise StaffError(404, "not_found", f"Booking #{booking_id} not found.")
+        if not self.store.cancel_booking(booking_id, by="staff"):
+            raise StaffError(409, "not_confirmed", f"Booking #{booking_id} is already {booking['status']}.")
+        updated = self.store.get_booking(booking_id)
+        notified, note = False, None
+        if notify:
+            conv = self.store.get_conversation(booking["wa_id"])
+            ok, why = self._can_message(conv)
+            if ok:
+                from .catalog import t as legacy_t
+                body = legacy_t(
+                    "staff_cancelled",
+                    conv.lang,
+                    name=booking["customer_name"],
+                    business=self.settings.business_name,
+                    service=booking["service_label"],
+                    date=_pretty(booking["date"], conv.lang),
+                    time=booking["time"],
+                )
+                self._send(booking["wa_id"], body, author="bot")
+                notified = True
+            else:
+                note = why
+        return {"booking": updated, "notified": notified, "note": note}

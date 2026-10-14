@@ -97,10 +97,16 @@ def test_signed_message_is_processed_into_the_outbox_and_replays_are_dropped(cli
 
     out = client.get("/dev/outbox", params={"wa_id": WA_ID, "after": cursor, "for_message": "wamid.hello"}).json()
     assert out["handled"] is True
-    assert [m["kind"] for m in out["messages"]] == ["buttons"]
+    assert [m["kind"] for m in out["messages"]] == ["list"]
     menu = out["messages"][0]
-    assert "Barbería Studio Norte" in menu["body"]
-    assert [o["id"] for o in menu["options"]] == ["menu:booking", "menu:info", "menu:human"]
+    assert "NexgloTV" in menu["body"]
+    assert [o["id"] for o in menu["options"]] == [
+        "menu:packages",
+        "menu:devices",
+        "menu:renewal",
+        "menu:support",
+        "menu:human",
+    ]
     # The raw Graph payload is stored verbatim.
     assert menu["payload"]["messaging_product"] == "whatsapp" and menu["payload"]["to"] == WA_ID
 
@@ -138,13 +144,14 @@ def test_env_example_placeholders_never_reach_graph_facebook(tmp_path, clock):
 
     env = _parse_env_example()
     env["DB_PATH"] = str(tmp_path / "example.sqlite")
+    env["CRM_PROVIDER"] = "mock"
     settings = Settings.from_env(env)
     assert not settings.whatsapp_configured and settings.dry_run and not settings.llm_configured
 
     services = build_services(settings, clock=clock, http_client=httpx.Client(transport=httpx.MockTransport(fail)))
     with TestClient(create_app(services)) as c:
         assert c.get("/health").json()["dry_run"] is True
-        resp = post_signed(c, text_event("wamid.example", "quiero una cita"), secret=env["WHATSAPP_APP_SECRET"])
+        resp = post_signed(c, text_event("wamid.example", "hola"), secret=env["WHATSAPP_APP_SECRET"])
         assert resp.status_code == 200
         out = c.get("/dev/outbox", params={"for_message": "wamid.example"}).json()
     assert out["handled"] is True and out["messages"][0]["kind"] == "list"

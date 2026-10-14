@@ -1,10 +1,9 @@
-# English FAQ answered offline from the knowledge base and the catalog.
+# English FAQ answered offline from the NexgloTV knowledge base and catalog.
 # Replay: python -m app chat --offline --now 2026-09-24T09:00 --script examples/faq_en.txt
 hi
-how much is a haircut?
-what time do you close on friday?
-where are you located?
-do you accept credit cards?
+how much is a package?
+what internet speed is required?
+do you have sports channels?
 do you sell guitars?
-# [2] Menu
+# [2] Main menu
 2

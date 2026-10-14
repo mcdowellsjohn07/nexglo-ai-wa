@@ -61,6 +61,34 @@ class NotifyIn(BaseModel):
     notify: bool = True
 
 
+class VerifyPaymentIn(BaseModel):
+    wa_id: str = Field(min_length=1)
+    payment_id: str = ""
+    verified_by: str = "staff"
+
+
+class ConfirmSetupIn(BaseModel):
+    wa_id: str = Field(min_length=1)
+    staff_name: str = "staff"
+
+
+class ApproveTrialIn(BaseModel):
+    duration_hours: int = Field(default=24, ge=1, le=720)
+    approved_by: str = "staff"
+
+
+class VisitQuoteIn(BaseModel):
+    wa_id: str = Field(min_length=1)
+    fee_le: int = Field(ge=0)
+    approved_by: str = "staff"
+
+
+class RunAutomationsIn(BaseModel):
+    stalled_after_hours: float = Field(default=2.0, ge=0.0, le=720.0)
+    payment_remind_after_hours: float = Field(default=1.0, ge=0.0, le=720.0)
+    renewal_days_before: int = Field(default=3, ge=0, le=90)
+
+
 @router.get("/handoffs")
 def list_handoffs(last: int = Query(5, ge=0, le=50), desk: StaffDesk = Depends(staff_desk)) -> dict:
     items = desk.queue(last_messages=last)
@@ -82,6 +110,27 @@ def resolve(wa_id: str, body: Optional[NotifyIn] = None, desk: StaffDesk = Depen
     return _run(desk.resolve, wa_id, notify=(body or NotifyIn()).notify)
 
 
+@router.post("/payments/verify")
+def verify_payment(body: VerifyPaymentIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    return _run(desk.verify_payment, body.wa_id, body.payment_id, body.verified_by)
+
+
+@router.post("/leads/confirm-setup")
+def confirm_setup(body: ConfirmSetupIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    return _run(desk.confirm_setup, body.wa_id, body.staff_name)
+
+
+@router.post("/trials/{wa_id}/approve")
+def approve_trial(wa_id: str, body: Optional[ApproveTrialIn] = None, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    req = body or ApproveTrialIn()
+    return _run(desk.approve_trial, wa_id, req.duration_hours, req.approved_by)
+
+
+@router.post("/leads/visit-quote")
+def issue_visit_quote(body: VisitQuoteIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    return _run(desk.issue_visit_quote, body.wa_id, body.fee_le, body.approved_by)
+
+
 @router.get("/bookings")
 def bookings(
     date: Optional[str] = Query(None, description="YYYY-MM-DD; default: today onwards"),
@@ -95,3 +144,68 @@ def bookings(
 @router.post("/bookings/{booking_id}/cancel")
 def cancel_booking(booking_id: int, body: Optional[NotifyIn] = None, desk: StaffDesk = Depends(staff_desk)) -> dict:
     return _run(desk.cancel_booking, booking_id, notify=(body or NotifyIn()).notify)
+
+
+@router.get("/automations/status")
+def automations_status(desk: StaffDesk = Depends(staff_desk)) -> dict:
+    from .automations import AutomationRunner
+    runner = desk.services.automations or AutomationRunner(desk.services)
+    desk.services.automations = runner
+    return runner.status()
+
+
+@router.post("/automations/run")
+def run_automations(
+    body: Optional[RunAutomationsIn] = None,
+    desk: StaffDesk = Depends(staff_desk),
+) -> dict:
+    from .automations import AutomationRunner
+    req = body or RunAutomationsIn()
+    runner = desk.services.automations or AutomationRunner(desk.services)
+    desk.services.automations = runner
+    return runner.run_all(
+        stalled_after_hours=req.stalled_after_hours,
+        payment_remind_after_hours=req.payment_remind_after_hours,
+        renewal_days_before=req.renewal_days_before,
+    )
+
+
+class ResellerWebhookIn(BaseModel):
+    event_type: str = Field(default="promote_intake_and_sync")
+    reseller_code: str = Field(min_length=1)
+    source_table: str = ""
+    record_id: str = ""
+    portal_base_token: str = ""
+
+
+@router.post("/reseller/sync-webhook")
+def reseller_sync_webhook(
+    body: ResellerWebhookIn,
+    desk: StaffDesk = Depends(staff_desk),
+) -> dict:
+    """Event-driven webhook endpoint for Lark Base HTTPClientAction workflows (Part D)."""
+    from .reseller_lark import ResellerSystemManager
+    mgr = ResellerSystemManager()
+    return mgr.process_reseller_webhook_event(
+        event_type=body.event_type,
+        reseller_code=body.reseller_code,
+        source_table=body.source_table,
+        record_id=body.record_id,
+        portal_base_token=body.portal_base_token,
+    )
+
+
+@router.post("/reseller/sync/{reseller_code}")
+def reseller_sync_portal(
+    reseller_code: str,
+    portal_base_token: str = Query(default=""),
+    desk: StaffDesk = Depends(staff_desk),
+) -> dict:
+    """On-demand 1-click projection of Master CRM approved records to a reseller's isolated Portal Base."""
+    from .reseller_lark import ResellerSystemManager
+    mgr = ResellerSystemManager()
+    return mgr.sync_approved_master_to_reseller_portal(
+        reseller_code=reseller_code,
+        portal_base_token=portal_base_token,
+    )
+

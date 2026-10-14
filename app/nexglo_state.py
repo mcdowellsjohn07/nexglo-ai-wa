@@ -51,6 +51,11 @@ class State:
     # --- Existing customer ---
     RENEWAL = "renewal"                    # Existing customer renewal
 
+    # --- Reseller flows ---
+    RESELLER_MENU = "reseller_menu"
+    RESELLER_DIRECT_SALE = "reseller_direct_sale"
+    RESELLER_WALLET_ACTIVATE = "reseller_wallet_activate"
+
 
 ALL_STATES: frozenset[str] = frozenset({
     State.IDLE, State.HUMAN, State.OPTED_OUT,
@@ -63,15 +68,26 @@ ALL_STATES: frozenset[str] = frozenset({
     State.TRIAL_REQUESTED, State.TRIAL_APPROVAL, State.TRIAL_ACTIVE,
     State.FOLLOW_UP, State.REFERRAL, State.LOST, State.ESCALATED,
     State.RENEWAL,
+    State.RESELLER_MENU, State.RESELLER_DIRECT_SALE, State.RESELLER_WALLET_ACTIVATE,
 })
 
 # Legal transitions. Every state may return to IDLE (reset) or escalate to HUMAN.
 # Human-owned states can only be resolved by staff.
 TRANSITIONS: dict[str, set[str]] = {
     State.IDLE: {
-        State.PRICES_SENT, State.FAQ_ONLY, State.SUPPORT,
+        State.PRICES_SENT, State.DEVICE_SELECTED, State.FAQ_ONLY, State.SUPPORT,
         State.COMPATIBILITY_CHECK, State.HUMAN, State.REFERRAL,
         State.TRIAL_REQUESTED, State.RENEWAL, State.LOST,
+        State.RESELLER_MENU, State.RESELLER_DIRECT_SALE, State.RESELLER_WALLET_ACTIVATE,
+    },
+    State.RESELLER_MENU: {
+        State.IDLE, State.HUMAN, State.RESELLER_DIRECT_SALE, State.RESELLER_WALLET_ACTIVATE,
+    },
+    State.RESELLER_DIRECT_SALE: {
+        State.IDLE, State.HUMAN, State.RESELLER_MENU,
+    },
+    State.RESELLER_WALLET_ACTIVATE: {
+        State.IDLE, State.HUMAN, State.RESELLER_MENU,
     },
     State.PRICES_SENT: {
         State.PACKAGE_SELECTED, State.FAQ_ONLY, State.IDLE, State.HUMAN,
@@ -80,10 +96,11 @@ TRANSITIONS: dict[str, set[str]] = {
         State.PAYMENT_READINESS, State.PRICES_SENT, State.IDLE, State.HUMAN,
     },
     State.PAYMENT_READINESS: {
-        State.DEVICE_SELECTED, State.PACKAGE_SELECTED, State.IDLE, State.HUMAN,
+        State.DEVICE_SELECTED, State.DEVICE_MODEL, State.PACKAGE_SELECTED, State.IDLE, State.HUMAN,
     },
     State.DEVICE_SELECTED: {
-        State.DEVICE_MODEL, State.INSTALL_METHOD, State.PAYMENT_READINESS, State.IDLE, State.HUMAN,
+        State.DEVICE_MODEL, State.INSTALL_METHOD, State.AREA_CAPTURED,
+        State.APP_LINK_SENT, State.PAYMENT_READINESS, State.IDLE, State.HUMAN,
     },
     State.DEVICE_MODEL: {
         State.INSTALL_METHOD, State.DEVICE_SELECTED, State.IDLE, State.HUMAN,
@@ -147,18 +164,19 @@ IN_FLOW_STATES: frozenset[str] = frozenset({
 
 # States that can be entered from IDLE without following the full chain
 ENTRY_STATES: frozenset[str] = frozenset({
-    State.PRICES_SENT, State.FAQ_ONLY, State.SUPPORT,
+    State.PRICES_SENT, State.DEVICE_SELECTED, State.FAQ_ONLY, State.SUPPORT,
     State.COMPATIBILITY_CHECK, State.HUMAN, State.REFERRAL,
     State.TRIAL_REQUESTED, State.RENEWAL,
+    State.RESELLER_MENU, State.RESELLER_DIRECT_SALE, State.RESELLER_WALLET_ACTIVATE,
 })
 
 
 # Interactive payload kinds and which states accept them
 # Format: "kind:value" - validated in payload_allowed()
 PAYLOAD_STATES: dict[str, Optional[frozenset[str]]] = {
-    "menu": frozenset({State.IDLE, State.FAQ_ONLY, State.SUPPORT, State.COMPATIBILITY_CHECK,
-                       State.TRIAL_REQUESTED, State.REFERRAL, State.RENEWAL, State.LOST}),
-    "pkg": frozenset({State.PRICES_SENT, State.PACKAGE_SELECTED}),
+    "menu": None,
+    "reseller": None,  # Any state
+    "pkg": frozenset({State.PRICES_SENT, State.PACKAGE_SELECTED, State.RENEWAL}),
     "ready": frozenset({State.PACKAGE_SELECTED, State.PAYMENT_READINESS}),
     "device": frozenset({State.PAYMENT_READINESS, State.DEVICE_SELECTED}),
     "install": frozenset({State.DEVICE_SELECTED, State.INSTALL_METHOD}),
@@ -209,6 +227,7 @@ class Conversation:
     is_existing_customer: bool = False
     customer_id: Optional[str] = None
     lead_id: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class Store(Database):
@@ -233,7 +252,7 @@ class Store(Database):
         with self._connect() as con:
             row = con.execute(
                 "SELECT wa_id, state, lang, draft, handoff, profile_name, opted_out, last_user_at, "
-                "is_existing_customer, customer_id, lead_id "
+                "is_existing_customer, customer_id, lead_id, updated_at "
                 "FROM conversations WHERE wa_id = ?",
                 (wa_id,),
             ).fetchone()
@@ -251,7 +270,36 @@ class Store(Database):
             is_existing_customer=bool(row["is_existing_customer"]),
             customer_id=row["customer_id"],
             lead_id=row["lead_id"],
+            updated_at=row["updated_at"],
         )
+
+    def list_conversations(self, states: Optional[set[str]] = None) -> list[Conversation]:
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT wa_id, state, lang, draft, handoff, profile_name, opted_out, last_user_at, "
+                "is_existing_customer, customer_id, lead_id, updated_at "
+                "FROM conversations ORDER BY updated_at ASC"
+            ).fetchall()
+        convs = [
+            Conversation(
+                wa_id=row["wa_id"],
+                state=row["state"],
+                lang=row["lang"],
+                draft=json.loads(row["draft"] or "{}"),
+                handoff=bool(row["handoff"]),
+                profile_name=row["profile_name"],
+                opted_out=bool(row["opted_out"]),
+                last_user_at=row["last_user_at"],
+                is_existing_customer=bool(row["is_existing_customer"]),
+                customer_id=row["customer_id"],
+                lead_id=row["lead_id"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ]
+        if states is not None:
+            convs = [c for c in convs if c.state in states]
+        return convs
 
     def conversation_exists(self, wa_id: str) -> bool:
         with self._connect() as con:

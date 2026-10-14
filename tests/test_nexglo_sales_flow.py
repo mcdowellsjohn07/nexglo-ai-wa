@@ -33,7 +33,7 @@ class TestPriceEnquiry:
         assert state == 'prices_sent'
         # Check price card was sent (text fallback)
         last_msg = sim.services.store.transcript(sim.wa_id, limit=1)[0]
-        assert 'Le144' in last_msg['content'] or 'Le720' in last_msg['content']
+        assert 'Le180' in last_msg['content'] or 'Le900' in last_msg['content']
 
     def test_price_enquiry_no_questions_first(self, simulator):
         """Price card sent without asking name/area/device first."""
@@ -63,7 +63,7 @@ class TestPackageSelection:
         draft = sim.services.store.get_conversation(sim.wa_id).draft
         assert draft.get('months') == 3
         assert draft.get('device_count') == 2
-        assert draft.get('quote') == 720
+        assert draft.get('quote') == 900
 
     def test_readiness_question_after_quote(self, simulator):
         """Readiness question asked after package quote."""
@@ -170,7 +170,7 @@ class TestExistingCustomer:
             name='Test User',
             subscription_months=3,
             device_count=2,
-            amount_paid_le=720,
+            amount_paid_le=900,
             account_status='active',
         )
         crm.provider.upsert_customer(customer)
@@ -258,6 +258,184 @@ class TestNoAutoTrial:
             if msg['author'] == 'bot':
                 assert 'trial' not in msg['content'].lower()
                 assert 'free' not in msg['content'].lower() or 'free trial' not in msg['content'].lower()
+
+
+class TestStateHandlersAndFixes:
+    """Regression tests for fixed bugs (#2 through #7)."""
+
+    def test_device_model_and_area_capture_handlers(self, simulator):
+        """Bug #6: Smart TV model capture -> install method -> area capture -> handoff."""
+        sim = simulator
+        sim.send_text('How much?')
+        sim.send_text('1 month 1 device')
+        sim.send_text('ready')
+        # Pick Smart TV by number '3'
+        sim.send_text('3')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'device_model'
+
+        # Reply with TV model
+        sim.send_text('Samsung 55 TU7000')
+        conv = sim.services.store.get_conversation(sim.wa_id)
+        assert conv.state == 'install_method'
+        assert conv.draft.get('device_model') == 'Samsung 55 TU7000'
+
+        # Choose staff visit
+        sim.tap('install:visit', 'Staff visit (fee)')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'area_captured'
+
+        # Reply with area
+        sim.send_text('Lumley, Freetown')
+        conv = sim.services.store.get_conversation(sim.wa_id)
+        assert conv.state == 'human'
+        assert conv.handoff is True
+        lead = sim.services.crm.provider.get_lead_by_wa_id(sim.wa_id)
+        assert lead is not None
+        assert lead.area == 'Lumley, Freetown'
+        assert lead.device_model == 'Samsung 55 TU7000'
+
+    def test_payment_due_proof_handler_and_admin_endpoints(self, simulator):
+        """Bug #4 & #6: Staff confirm-setup -> PAYMENT_DUE -> customer proof -> staff verify-payment."""
+        from fastapi.testclient import TestClient
+        from app.main import create_app
+
+        with tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False) as f:
+            db_path = Path(f.name)
+        s = Settings.from_env({'ADMIN_TOKEN': 'secret-admin-token'})
+        clock = FrozenClock(datetime(2026, 9, 24, 9, 0, 0, tzinfo=timezone.utc))
+        sim = ChatSimulator(s, db_path, clock, wa_id='23277000111', offline=True)
+        app = create_app(services=sim.services)
+        client = TestClient(app)
+        headers = {'Authorization': 'Bearer secret-admin-token'}
+
+        sim.send_text('How much?')
+        sim.send_text('3 months 2 devices')
+        sim.send_text('ready')
+        sim.tap('device:android_phone', 'Android phone')
+        sim.tap('install:self', 'Self-install (free)')
+
+        # Staff confirms setup via /admin/leads/confirm-setup
+        r = client.post('/admin/leads/confirm-setup', json={'wa_id': sim.wa_id, 'staff_name': 'Samuel'}, headers=headers)
+        assert r.status_code == 200
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'payment_due'
+
+        # Customer sends payment reference in PAYMENT_DUE state
+        sim.send_text('Orange Money Ref OM-998877')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'payment_verification'
+        assert len(sim.services.crm.provider.payments) == 1
+        assert sim.services.crm.provider.payments[0].transaction_reference == 'Orange Money Ref OM-998877'
+
+        # Staff verifies payment via /admin/payments/verify
+        r2 = client.post('/admin/payments/verify', json={'wa_id': sim.wa_id, 'verified_by': 'Samuel'}, headers=headers)
+        assert r2.status_code == 200
+        assert r2.json()['converted'] is True
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'converted'
+
+    def test_discount_active_false_parsing(self):
+        """Bug #5: DISCOUNT_ACTIVE=false is respected."""
+        s = Settings.from_env({'DISCOUNT_ACTIVE': 'false'})
+        assert s.discount_active is False
+        s_default = Settings.from_env({})
+        assert s_default.discount_active is True
+
+    def test_media_service_sends_image_via_url_and_media_id(self, simulator):
+        """Bug #3: MediaService.send_price_card works with synchronous WhatsAppClient.send_image."""
+        from app.media_service import MediaService
+        sim = simulator
+        media = MediaService(
+            wa=sim.services.wa,
+            price_card_media_url='https://example.com/price-card.jpg',
+            price_card_media_id='meta_media_123',
+        )
+        res = media.send_price_card(sim.wa_id)
+        assert res.success is True
+        assert res.media_id == 'meta_media_123'
+
+    def test_crm_provider_exception_does_not_crash_conversation(self, simulator):
+        """Bug #2: CRM exceptions are caught so the customer still gets a reply."""
+        sim = simulator
+        def broken_get_lead(wa_id):
+            raise RuntimeError("CRM offline")
+        sim.services.crm.provider.get_lead_by_wa_id = broken_get_lead
+        sim.send_text('How much?')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'prices_sent'
+
+    def test_button_titles_fit_whatsapp_limit(self):
+        """Bug #7: Interactive button titles fit within WhatsApp's 20-char limit."""
+        from app.nexglo_catalog import t
+        for lang in ('es', 'en'):
+            for key in ('quote_ready_yes', 'quote_ready_no', 'quote_change', 'install_self', 'install_visit'):
+                assert len(t(key, lang)) <= 20, f"{key} ({lang}) exceeds 20 chars: {t(key, lang)!r}"
+
+    def test_renewal_package_selection_and_expiration_date(self, simulator):
+        """Renewal flow allows selecting a package from State.RENEWAL and sets subscription_expires_at."""
+        from app.crm_sheets import CustomerRecord
+        sim = simulator
+        crm = sim.services.crm
+        crm.provider.upsert_customer(CustomerRecord(
+            customer_id='cust_999',
+            source_lead_id='lead_999',
+            wa_id=sim.wa_id,
+            phone_e164=sim.wa_id,
+            name='Renewing User',
+            subscription_months=1,
+            device_count=1,
+            amount_paid_le=180,
+            account_status='active',
+        ))
+        sim.send_text('I want to renew')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'renewal'
+
+        # Customer selects renewal package via text or list payload
+        sim.send_text('6 months 2 devices')
+        conv = sim.services.store.get_conversation(sim.wa_id)
+        assert conv.state == 'package_selected'
+        assert conv.draft.get('months') == 6
+        assert conv.draft.get('quote') == 1700
+
+        updated_cust = crm.confirm_payment_and_convert(sim.wa_id, 'pay_1', 'Admin')
+        assert updated_cust is not None
+        assert updated_cust.renewal_count == 1
+        assert updated_cust.subscription_months == 6
+        assert updated_cust.subscription_expires_at != ''
+
+    def test_trial_device_followup_and_referral_code_capture(self, simulator):
+        """Trial device reply escalates cleanly; referral code reply records referral and shows price card."""
+        sim = simulator
+        sim.send_text('Can I get a free trial?')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'trial_requested'
+
+        sim.send_text('Firestick')
+        conv = sim.services.store.get_conversation(sim.wa_id)
+        assert conv.state == 'human'
+        assert conv.handoff is True
+        lead = sim.services.crm.provider.get_lead_by_wa_id(sim.wa_id)
+        assert lead.device_types == 'fire_stick'
+
+        # Reset and test referral flow
+        sim.send_text('menu')
+        sim.send_text('I was referred by someone')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'referral'
+        sim.send_text('REF-SAMUEL-01')
+        assert sim.services.store.get_conversation(sim.wa_id).state == 'prices_sent'
+        lead = sim.services.crm.provider.get_lead_by_wa_id(sim.wa_id)
+        assert lead.referrer_code == 'REF-SAMUEL-01'
+
+    def test_lark_merge_notes_idempotent_and_webhook_size_guard(self, simulator):
+        """Lark _merge_notes replaces [Summary: ...] idempotently and webhook rejects >1MB payloads."""
+        from app.crm_lark import LarkBaseCRMProvider
+        from fastapi.testclient import TestClient
+        from app.main import create_app
+
+        merged1 = LarkBaseCRMProvider._merge_notes("", ["Stage=PRICES_SENT"])
+        merged2 = LarkBaseCRMProvider._merge_notes(merged1, ["Stage=PACKAGE_SELECTED"])
+        assert merged2 == "[Summary: Stage=PACKAGE_SELECTED]"
+        assert merged2.count("[Summary:") == 1
+
+        app = create_app(services=simulator.services)
+        client = TestClient(app)
+        oversized = b"x" * (1_048_576 + 10)
+        resp = client.post("/webhook", content=oversized)
+        assert resp.status_code == 413
 
 
 if __name__ == '__main__':

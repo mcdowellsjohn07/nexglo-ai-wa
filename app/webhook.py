@@ -8,6 +8,7 @@ so we can return 200 immediately (Meta retries slow responses).
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 from typing import Iterator
@@ -21,6 +22,8 @@ from .security import verify_signature
 
 log = logging.getLogger("whatsapp_agent.webhook")
 
+MAX_WEBHOOK_BYTES = 1_048_576  # 1 MB guard against oversized payloads
+
 router = APIRouter()
 
 
@@ -33,9 +36,15 @@ def get_services(request: Request) -> Services:
 async def verify(request: Request, services: Services = Depends(get_services)) -> PlainTextResponse:
     params = request.query_params
     mode = params.get("hub.mode")
-    token = params.get("hub.verify_token")
+    token = params.get("hub.verify_token") or ""
     challenge = params.get("hub.challenge")
-    if mode == "subscribe" and token == services.settings.verify_token:
+    expected = services.settings.verify_token or ""
+    if (
+        mode == "subscribe"
+        and token
+        and expected
+        and hmac.compare_digest(token.encode("utf-8"), expected.encode("utf-8"))
+    ):
         log.info("Webhook verified by Meta.")
         return PlainTextResponse(challenge or "")
     log.warning("Webhook verification failed (mode=%s).", mode)
@@ -50,6 +59,8 @@ async def receive(
     services: Services = Depends(get_services),
 ) -> dict:
     raw = await request.body()
+    if len(raw) > MAX_WEBHOOK_BYTES:
+        raise HTTPException(status_code=413, detail="Payload too large")
     settings = services.settings
 
     if settings.signature_enforced:

@@ -8,21 +8,31 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Any
 from uuid import uuid4
 
-import gspread
-from google.oauth2.service_account import Credentials
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+except ImportError:  # pragma: no cover
+    gspread = None  # type: ignore[assignment]
+    Credentials = None  # type: ignore[assignment]
 
 from .nexglo_pricing import PriceQuote
 from .nexglo_state import State
 
 log = logging.getLogger("nexglo_crm")
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
 
 
 # --- Data classes for CRM records ---------------------------------------------
@@ -317,7 +327,7 @@ class MockCRMProvider(CRMProvider):
         log.info("Mock CRM provider initialized")
 
     def _now(self) -> str:
-        return datetime.utcnow().isoformat()
+        return _utc_now_iso()
 
     def upsert_lead(self, lead: LeadRecord) -> bool:
         existing = self.leads.get(lead.wa_id)
@@ -443,29 +453,33 @@ class GoogleSheetsCRMProvider(CRMProvider):
         self._worksheets: dict[str, gspread.Worksheet] = {}
         self._header_cache: dict[str, list[str]] = {}
         self._row_index_cache: dict[str, dict[str, int]] = {}  # worksheet -> {wa_id: row_num}
+        self._lock = threading.RLock()
 
     def _get_client(self) -> gspread.Client:
-        if self._client is None:
-            creds_dict = json.loads(self.service_account_json)
-            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-            self._client = gspread.authorize(creds)
-        return self._client
+        with self._lock:
+            if self._client is None:
+                creds_dict = json.loads(self.service_account_json)
+                creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+                self._client = gspread.authorize(creds)
+            return self._client
 
     def _get_spreadsheet(self):
-        if self._spreadsheet is None:
-            self._spreadsheet = self._get_client().open_by_key(self.sheet_id)
-        return self._spreadsheet
+        with self._lock:
+            if self._spreadsheet is None:
+                self._spreadsheet = self._get_client().open_by_key(self.sheet_id)
+            return self._spreadsheet
 
     def _get_worksheet(self, name: str) -> gspread.Worksheet:
-        if name not in self._worksheets:
-            try:
-                ws = self._get_spreadsheet().worksheet(name)
-            except gspread.WorksheetNotFound:
-                ws = self._get_spreadsheet().add_worksheet(title=name, rows=1000, cols=50)
-                ws.append_row(RECORD_CLASSES[name].headers())
-            self._worksheets[name] = ws
-            self._refresh_header_cache(name)
-        return self._worksheets[name]
+        with self._lock:
+            if name not in self._worksheets:
+                try:
+                    ws = self._get_spreadsheet().worksheet(name)
+                except gspread.WorksheetNotFound:
+                    ws = self._get_spreadsheet().add_worksheet(title=name, rows=1000, cols=50)
+                    ws.append_row(RECORD_CLASSES[name].headers())
+                self._worksheets[name] = ws
+                self._refresh_header_cache(name)
+            return self._worksheets[name]
 
     def _refresh_header_cache(self, name: str) -> None:
         ws = self._worksheets[name]
@@ -473,16 +487,18 @@ class GoogleSheetsCRMProvider(CRMProvider):
 
     def _get_row_index(self, name: str, wa_id: str) -> Optional[int]:
         """Find row by wa_id (column B in all sheets). Uses cache."""
-        if name not in self._row_index_cache:
-            ws = self._get_worksheet(name)
-            # Column B is wa_id (index 1 in 0-based, 2 in 1-based)
-            col_values = ws.col_values(2)[1:]  # Skip header
-            self._row_index_cache[name] = {v: i + 2 for i, v in enumerate(col_values) if v}
-        return self._row_index_cache[name].get(wa_id)
+        with self._lock:
+            if name not in self._row_index_cache:
+                ws = self._get_worksheet(name)
+                # Column B is wa_id (index 1 in 0-based, 2 in 1-based)
+                col_values = ws.col_values(2)[1:]  # Skip header
+                self._row_index_cache[name] = {v: i + 2 for i, v in enumerate(col_values) if v}
+            return self._row_index_cache[name].get(wa_id)
 
     def _invalidate_row_cache(self, name: str) -> None:
-        if name in self._row_index_cache:
-            del self._row_index_cache[name]
+        with self._lock:
+            if name in self._row_index_cache:
+                del self._row_index_cache[name]
 
     def _retry(self, func, *args, **kwargs):
         """Execute with exponential backoff on 429/5xx errors."""
@@ -566,7 +582,7 @@ class GoogleSheetsCRMProvider(CRMProvider):
         if not payment.payment_id:
             payment.payment_id = str(uuid4())
         if not payment.created_at:
-            payment.created_at = datetime.utcnow().isoformat()
+            payment.created_at = _utc_now_iso()
         row_data = [getattr(payment, h, "") for h in self._header_cache.get("Payments", PaymentRecord.headers())]
         self._retry(ws.append_row, row_data, value_input_option="USER_ENTERED")
         self._invalidate_row_cache("Payments")
@@ -597,8 +613,8 @@ def create_crm_provider(
 ) -> CRMProvider:
     """Factory for CRM providers."""
     if provider == "google_sheets":
-        if not sheet_id or not service_account_json:
-            log.warning("Google Sheets credentials missing, falling back to mock")
+        if not sheet_id or not service_account_json or gspread is None:
+            log.warning("Google Sheets credentials or gspread missing, falling back to mock")
             return MockCRMProvider()
         return GoogleSheetsCRMProvider(sheet_id, service_account_json)
     return MockCRMProvider()
@@ -620,16 +636,19 @@ class CRMService:
         source: str = "whatsapp",
     ) -> LeadRecord:
         """Get existing lead or create new one."""
-        lead = self.provider.get_lead_by_wa_id(wa_id)
-        if lead:
-            lead.last_message_at = datetime.utcnow().isoformat()
-            if profile_name and not lead.name:
-                lead.name = profile_name
-            self.provider.upsert_lead(lead)
-            return lead
+        now = _utc_now_iso()
+        try:
+            lead = self.provider.get_lead_by_wa_id(wa_id)
+            if lead:
+                lead.last_message_at = now
+                if profile_name and not lead.name:
+                    lead.name = profile_name
+                self.provider.upsert_lead(lead)
+                return lead
+        except Exception:
+            log.exception("Failed to read/update existing lead for %s", wa_id)
 
         # Create new lead
-        now = datetime.utcnow().isoformat()
         lead = LeadRecord(
             lead_id=str(uuid4()),
             wa_id=wa_id,
@@ -641,22 +660,30 @@ class CRMService:
             created_at=now,
             updated_at=now,
         )
-        self.provider.upsert_lead(lead)
+        try:
+            self.provider.upsert_lead(lead)
+        except Exception:
+            log.exception("Failed to upsert new lead for %s", wa_id)
         return lead
 
     def update_lead_stage(self, wa_id: str, stage: str, **extra_fields) -> Optional[LeadRecord]:
         """Update lead stage and optional extra fields."""
-        lead = self.provider.get_lead_by_wa_id(wa_id)
-        if not lead:
+        try:
+            lead = self.provider.get_lead_by_wa_id(wa_id)
+            if not lead:
+                lead = self.ensure_lead(wa_id, wa_id)
+            now = _utc_now_iso()
+            lead.lead_stage = stage
+            lead.last_message_at = now
+            lead.updated_at = now
+            for key, value in extra_fields.items():
+                if hasattr(lead, key):
+                    setattr(lead, key, value)
+            self.provider.upsert_lead(lead)
+            return lead
+        except Exception:
+            log.exception("Failed to update lead stage for %s to %s", wa_id, stage)
             return None
-        lead.lead_stage = stage
-        lead.last_message_at = datetime.utcnow().isoformat()
-        lead.updated_at = datetime.utcnow().isoformat()
-        for key, value in extra_fields.items():
-            if hasattr(lead, key):
-                setattr(lead, key, value)
-        self.provider.upsert_lead(lead)
-        return lead
 
     def record_quote(self, wa_id: str, quote: PriceQuote, device_count: int) -> Optional[LeadRecord]:
         return self.update_lead_stage(
@@ -703,7 +730,7 @@ class CRMService:
             "APP_LINK_SENT",
             app_name=app_name,
             app_url_sent=app_url,
-            app_sent_at=datetime.utcnow().isoformat(),
+            app_sent_at=_utc_now_iso(),
         )
 
     def record_app_installed(self, wa_id: str) -> Optional[LeadRecord]:
@@ -725,10 +752,13 @@ class CRMService:
                 lead_id=lead.lead_id,
                 wa_id=wa_id,
                 reason=reason,
-                requested_at=datetime.utcnow().isoformat(),
+                requested_at=_utc_now_iso(),
                 status="pending",
             )
-            self.provider.upsert_handoff(handoff_rec)
+            try:
+                self.provider.upsert_handoff(handoff_rec)
+            except Exception:
+                log.exception("Failed to upsert handoff %s for %s", handoff_id, wa_id)
         return lead
 
     def record_setup_verified(self, wa_id: str, staff_name: str) -> Optional[LeadRecord]:
@@ -744,10 +774,13 @@ class CRMService:
                 lead_id=lead.lead_id,
                 wa_id=wa_id,
                 setup_status="verified",
-                setup_verified_at=datetime.utcnow().isoformat(),
+                setup_verified_at=_utc_now_iso(),
                 assigned_staff=staff_name,
             )
-            self.provider.upsert_installation(inst)
+            try:
+                self.provider.upsert_installation(inst)
+            except Exception:
+                log.exception("Failed to upsert installation for %s", wa_id)
         return lead
 
     def record_payment_due(self, wa_id: str, quote: PriceQuote) -> Optional[LeadRecord]:
@@ -759,8 +792,12 @@ class CRMService:
         )
 
     def record_payment_proof(self, wa_id: str, method: str, reference: str, amount: int) -> Optional[LeadRecord]:
-        lead = self.provider.get_lead_by_wa_id(wa_id)
-        if not lead:
+        try:
+            lead = self.provider.get_lead_by_wa_id(wa_id)
+            if not lead:
+                lead = self.ensure_lead(wa_id, wa_id)
+        except Exception:
+            log.exception("Failed to fetch lead for payment proof (%s)", wa_id)
             return None
 
         payment = PaymentRecord(
@@ -770,10 +807,13 @@ class CRMService:
             expected_amount_le=amount,
             method=method,
             transaction_reference=reference,
-            proof_received_at=datetime.utcnow().isoformat(),
+            proof_received_at=_utc_now_iso(),
             status="verifying",
         )
-        self.provider.upsert_payment(payment)
+        try:
+            self.provider.upsert_payment(payment)
+        except Exception:
+            log.exception("Failed to upsert payment for %s", wa_id)
 
         return self.update_lead_stage(
             wa_id,
@@ -788,21 +828,31 @@ class CRMService:
         verified_by: str,
         customer_id: Optional[str] = None,
     ) -> Optional[CustomerRecord]:
-        lead = self.provider.get_lead_by_wa_id(wa_id)
+        try:
+            lead = self.provider.get_lead_by_wa_id(wa_id)
+        except Exception:
+            log.exception("Failed to fetch lead for conversion (%s)", wa_id)
+            lead = None
         if not lead:
             return None
 
-        # Update payment
-        # (In real implementation, would update the specific payment record)
+        now = _utc_now_iso()
+        months = lead.months if lead.months and lead.months > 0 else 1
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=30 * months)).date().isoformat()
+        try:
+            existing_customer = self.provider.get_customer_by_wa_id(wa_id)
+        except Exception:
+            log.exception("Failed to fetch existing customer for %s", wa_id)
+            existing_customer = None
 
-        # Create or update customer
-        existing_customer = self.provider.get_customer_by_wa_id(wa_id)
         if existing_customer:
             customer = existing_customer
             customer.renewal_count += 1
-            customer.last_renewed_at = datetime.utcnow().isoformat()
+            customer.last_renewed_at = now
+            customer.subscription_months = months
+            customer.subscription_expires_at = expires_at
             customer.amount_paid_le = lead.subscription_quote_le
-            customer.payment_verified_at = datetime.utcnow().isoformat()
+            customer.payment_verified_at = now
             customer.account_status = "active"
         else:
             customer = CustomerRecord(
@@ -814,15 +864,36 @@ class CRMService:
                 location_area=lead.area,
                 device_types=lead.device_types,
                 device_count=lead.device_count,
-                subscription_months=lead.months,
-                package_code=f"{lead.months}m_{lead.device_count}d",
+                subscription_months=months,
+                package_code=f"{months}m_{lead.device_count or 1}d",
                 amount_paid_le=lead.subscription_quote_le,
-                payment_verified_at=datetime.utcnow().isoformat(),
-                activation_at=datetime.utcnow().isoformat(),
+                payment_verified_at=now,
+                activation_at=now,
+                subscription_expires_at=expires_at,
                 account_status="active",
-                created_at=datetime.utcnow().isoformat(),
+                created_at=now,
             )
-        self.provider.upsert_customer(customer)
+        try:
+            self.provider.upsert_customer(customer)
+        except Exception:
+            log.exception("Failed to upsert customer for %s", wa_id)
+
+        # Record confirmed payment linked to both lead and customer
+        confirmed_payment = PaymentRecord(
+            payment_id=payment_id or str(uuid4()),
+            lead_id=lead.lead_id,
+            customer_id=customer.customer_id,
+            phone_e164=lead.phone_e164,
+            expected_amount_le=lead.subscription_quote_le,
+            status="confirmed",
+            verified_by=verified_by,
+            verified_at=now,
+            created_at=now,
+        )
+        try:
+            self.provider.upsert_payment(confirmed_payment)
+        except Exception:
+            log.exception("Failed to upsert confirmed payment for %s", wa_id)
 
         # Mark lead converted
         self.update_lead_stage(
@@ -834,18 +905,36 @@ class CRMService:
         return customer
 
     def get_customer_for_renewal(self, wa_id: str) -> Optional[CustomerRecord]:
-        return self.provider.get_customer_by_wa_id(wa_id)
+        try:
+            return self.provider.get_customer_by_wa_id(wa_id)
+        except Exception:
+            log.exception("Failed to get customer for renewal (%s)", wa_id)
+            return None
 
     def record_trial_request(self, wa_id: str) -> Optional[LeadRecord]:
-        return self.update_lead_stage(
+        lead = self.update_lead_stage(
             wa_id,
             "TRIAL_REQUESTED",
             trial_requested=True,
         )
+        if lead:
+            trial = TrialRecord(
+                trial_id=str(uuid4()),
+                lead_id=lead.lead_id,
+                requested_at=_utc_now_iso(),
+                approval_status="pending",
+            )
+            try:
+                self.provider.upsert_trial(trial)
+            except Exception:
+                log.exception("Failed to upsert trial for %s", wa_id)
+        return lead
 
     def record_referral(self, wa_id: str, referrer_code: str) -> Optional[LeadRecord]:
-        lead = self.provider.get_lead_by_wa_id(wa_id)
-        if lead:
+        try:
+            lead = self.provider.get_lead_by_wa_id(wa_id)
+            if not lead:
+                lead = self.ensure_lead(wa_id, wa_id)
             lead.referrer_code = referrer_code
             self.provider.upsert_lead(lead)
 
@@ -856,12 +945,20 @@ class CRMService:
                 referral_code=referrer_code,
             )
             self.provider.upsert_referral(referral)
-        return lead
+            return lead
+        except Exception:
+            log.exception("Failed to record referral for %s", wa_id)
+            return None
 
     def set_opt_out(self, wa_id: str, opted_out: bool) -> Optional[LeadRecord]:
-        lead = self.provider.get_lead_by_wa_id(wa_id)
-        if lead:
+        try:
+            lead = self.provider.get_lead_by_wa_id(wa_id)
+            if not lead:
+                lead = self.ensure_lead(wa_id, wa_id)
             lead.opted_out = opted_out
-            lead.updated_at = datetime.utcnow().isoformat()
+            lead.updated_at = _utc_now_iso()
             self.provider.upsert_lead(lead)
-        return lead
+            return lead
+        except Exception:
+            log.exception("Failed to set opt_out for %s", wa_id)
+            return None

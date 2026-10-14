@@ -1,107 +1,106 @@
-you › I want to book an appointment
-bot › Great. Which service would you like to book?
-      ☰ See services
-        1) Haircut · $12 · 30 min
-        2) Haircut + beard · $18 · 45 min
-        3) Classic shave · $10 · 30 min
-        4) Beard trim · $8 · 20 min
-        5) Kids haircut · $9 · 30 min
-        6) Hair color · $25 · 60 min
-you › [Haircut]
-bot › Which day works? Here are the next available days:
-      ☰ Pick a day
-        1) Thu 24 Sep · Today
-        2) Fri 25 Sep · Tomorrow
-        3) Sat 26 Sep
-        4) Mon 28 Sep
-        5) Tue 29 Sep
-        6) Wed 30 Sep
-        7) Thu 1 Oct
-you › tomorrow
-bot › What time suits you on Fri 25 Sep?
-      ☰ Pick a time
-        1) 09:00
-        2) 10:00
-        3) 11:00
-        4) 12:00
-        5) 13:00
-        6) 14:00
-        7) 15:00
-        8) 16:00
-        9) 17:00
-       10) More times ➡️ · After 17:00
-you › 4pm
-bot › Almost done. What name should I book it under? Type it or tap your name:
-      [1] Ana
-you › [Ana]
-bot › Let's confirm your appointment:
+you › How much does it cost?
+bot › Understood. Here are the prices with 20% off:
 
-      ✂️ Service: Haircut
-      📅 Date: Fri 25 Sep
-      🕐 Time: 16:00
-      🙍 Name: Ana
+      📺 **NexgloTV — 20% OFF Subscription Packages**
 
-      Is everything correct?
-      [1] Confirm ✅   [2] Change   [3] Cancel
-you › [Confirm ✅]
-bot › All set, Ana! 🎉 Your Haircut appointment is booked for Fri 25 Sep at 16:00. See you at Barbería Studio Norte. To change or cancel it, type *my appointments*.
-you › I need to reschedule my appointment
-bot › Your appointment:
+      **1 month**
+        1 device: Le180
+        2 devices: Le320
+        3 devices: Le420
+        4+ devices: Le120 each (total Le480)
 
-      ✂️ Haircut
-      📅 Fri 25 Sep
-      🕐 16:00
-      🙍 Ana
+      **3 months**
+        1 device: Le500
+        2 devices: Le900
+        3 devices: Le1,200
+        4+ devices: Le340 each (total Le1,360)
 
-      What would you like to do?
-      [1] Cancel it   [2] Reschedule   [3] Keep it
-you › [Reschedule]
-bot › Which day would you like to move your Haircut appointment to?
-      ☰ Pick a day
-        1) Thu 24 Sep · Today
-        2) Fri 25 Sep · Tomorrow
-        3) Sat 26 Sep
-        4) Mon 28 Sep
-        5) Tue 29 Sep
-        6) Wed 30 Sep
-        7) Thu 1 Oct
-you › saturday
-bot › What time suits you on Sat 26 Sep?
-      ☰ Pick a time
-        1) 08:00
-        2) 09:00
-        3) 10:00
-        4) 11:00
-        5) 12:00
-        6) 13:00
-        7) 14:00
-        8) 15:00
-        9) 16:00
-       10) 17:00
-you › 11am
-bot › Let's confirm the change:
+      **6 months**
+        1 device: Le950
+        2 devices: Le1,700
+        3 devices: Le2,250
+        4+ devices: Le640 each (total Le2,560)
 
-      ✂️ Haircut
-      ❌ Before: Fri 25 Sep at 16:00
-      ✅ New: Sat 26 Sep at 11:00
+      **12 months**
+        1 device: Le1,800
+        2 devices: Le3,200
+        3 devices: Le4,200
+        4+ devices: Le1,200 each (total Le4,800)
 
-      Is everything correct?
-      [1] Confirm ✅   [2] Change   [3] Cancel
-you › [Confirm ✅]
-bot › All set, Ana! 🎉 Your Haircut appointment is now on Sat 26 Sep at 11:00.
-you › cancel my appointment
-bot › Your appointment:
+      Prices in Sierra Leonean Leones (Le). No VAT added.
+      4+ devices priced PER DEVICE.
+      Reply with your choice (e.g. '3 months 2 devices') or ask questions.
 
-      ✂️ Haircut
-      📅 Sat 26 Sep
-      🕐 11:00
-      🙍 Ana
+      Which package would you like?
+you › 3 months 2 devices
+bot › 👍 **3 months for 2 devices** costs **Le900**.
 
-      What would you like to do?
-      [1] Cancel it   [2] Reschedule   [3] Keep it
-you › [Cancel it]
-bot › Are you sure you want to cancel your Haircut appointment on Sat 26 Sep at 11:00?
-      [1] Yes, cancel   [2] No, keep it
-you › [Yes, cancel]
-bot › Done, I cancelled your Haircut appointment on Sat 26 Sep at 11:00. Hope to see you soon! 👋
-   #1    2026-09-26 11:00  cancelled Ana                  Haircut            50760001234
+      We can help you install and test the service **before you pay** for the subscription.
+      Are you comfortable paying once we confirm it works?
+      [1] Yes, ready to pay   [2] Let me think   [3] Change package
+you › [Change package]
+bot › Understood. Here are the prices with 20% off:
+
+      📺 **NexgloTV — 20% OFF Subscription Packages**
+
+      **1 month**
+        1 device: Le180
+        2 devices: Le320
+        3 devices: Le420
+        4+ devices: Le120 each (total Le480)
+
+      **3 months**
+        1 device: Le500
+        2 devices: Le900
+        3 devices: Le1,200
+        4+ devices: Le340 each (total Le1,360)
+
+      **6 months**
+        1 device: Le950
+        2 devices: Le1,700
+        3 devices: Le2,250
+        4+ devices: Le640 each (total Le2,560)
+
+      **12 months**
+        1 device: Le1,800
+        2 devices: Le3,200
+        3 devices: Le4,200
+        4+ devices: Le1,200 each (total Le4,800)
+
+      Prices in Sierra Leonean Leones (Le). No VAT added.
+      4+ devices priced PER DEVICE.
+      Reply with your choice (e.g. '3 months 2 devices') or ask questions.
+
+      Which package would you like?
+you › 6 months 2 devices
+bot › 👍 **6 months for 2 devices** costs **Le1,700**.
+
+      We can help you install and test the service **before you pay** for the subscription.
+      Are you comfortable paying once we confirm it works?
+      [1] Yes, ready to pay   [2] Let me think   [3] Change package
+you › [Yes, ready to pay]
+bot › Which device will you watch NexgloTV on?
+
+      1️⃣ Android phone
+      2️⃣ iPhone / iPad
+      3️⃣ Smart TV
+      4️⃣ Fire Stick
+      5️⃣ Tablet
+      6️⃣ Laptop
+      7️⃣ Android TV Box
+      8️⃣ Roku
+
+      Reply with the number or tell me the model.
+you › 3
+bot › Thanks. What's the exact model? (e.g. Samsung 55" TU7000, Fire Stick 4K, iPhone 14)
+you › Samsung 55 TU7000
+bot › We can guide you through installation **for free** before payment 😊.
+      If you'd prefer our team to visit, a location-based service fee may apply.
+
+      Would you rather self-install with our help or arrange a visit?
+      [1] Self-install (free)   [2] Staff visit (fee)
+you › [Self-install (free)]
+bot › I want to send you the correct app for your device, not a generic one.
+      Connecting you with the setup team to confirm the supported app and official download link.
+bot › Great ✅ Since you have the app installed, I'll request our setup team to provide your login and verify everything works before your subscription payment.
+   (no bookings)

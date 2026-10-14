@@ -132,7 +132,7 @@ DEV_TYPE_TO_MANIFEST = {
     "smart_tv": "Smart TV", "android_tv": "Android TV", "android_tv_box": "Android Box",
     "fire_stick": "Fire TV Stick", "android_phone": "Android Phone",
     "iphone_ipad": "iPhone or iPad", "laptop": "Computer", "tablet": "Other",
-    "other": "Other",
+    "roku": "Other", "other": "Other",
 }
 SETUP_TO_MANIFEST = {"self_install": "Self-Setup", "remote_guided": "Remote Assistance",
                      "staff_visit": "Physical Visit", "undecided": "Undecided"}
@@ -141,12 +141,15 @@ SETUP_TYPE_TO_MANIFEST = {"self_install": "Self-Setup",
                           "staff_visit": "Physical Installation"}
 PREF_SETUP_TO_MANIFEST = {"self_install": "Self-Setup", "remote_guided": "Remote",
                           "staff_visit": "Physical"}
-LANG_TO_MANIFEST = {"EN": "English", "English": "English", "Krio": "Krio",
+LANG_TO_MANIFEST = {"EN": "English", "en": "English", "English": "English",
+                    "ES": "Other", "es": "Other", "Krio": "Krio",
                     "Temne": "Temne", "Mende": "Mende", "Limba": "Limba",
                     "Other": "Other"}
-PAY_METHOD_TO_MANIFEST = {"orange_money": "Orange Money", "afrimoney": "Afrimoney",
-                          "bank_transfer": "Bank Transfer", "cash": "Cash",
-                          "qmoney": "Other", "card": "Card", "other": "Other"}
+PAY_METHOD_TO_MANIFEST = {"orange_money": "Orange Money", "orange": "Orange Money",
+                          "afrimoney": "Afrimoney", "bank_transfer": "Bank Transfer",
+                          "bank": "Bank Transfer", "transfer": "Bank Transfer",
+                          "cash": "Cash", "qmoney": "Other", "card": "Card",
+                          "reported": "Other", "other": "Other"}
 
 FIELD_SCHEMAS: dict[str, list[dict]] = {
     "01_Leads": [
@@ -457,9 +460,9 @@ TABLE_WA_FIELD: dict[str, str] = {
 # pass through verbatim; select writes that match no option are dropped by _to_cell.
 VALUE_MAPS: dict[str, dict[str, dict[str, str]]] = {
     "01_Leads": {
-        "Lead Source": {"whatsapp_bot": "WhatsApp", "referral": "Referral",
-                        "reseller": "Reseller", "walk_in": "Walk-in",
-                        "advert": "Other", "other": "Other"},
+        "Lead Source": {"whatsapp": "WhatsApp", "whatsapp_bot": "WhatsApp",
+                        "referral": "Referral", "reseller": "Reseller",
+                        "walk_in": "Walk-in", "advert": "Other", "other": "Other"},
         "Region": {"western_area": "Western Area", "north_west": "North West",
                    "northern": "Northern", "eastern": "Eastern",
                    "southern": "Southern", "other": "Other"},
@@ -473,18 +476,21 @@ VALUE_MAPS: dict[str, dict[str, dict[str, str]]] = {
         "Lead Stage": STAGE_TO_MANIFEST,
         "Priority": {"hot": "Hot", "warm": "Warm", "cold": "Cold"},
         "Trial Outcome": {"": "Not Requested", "none": "Not Requested",
-                          "requested": "Requested", "active": "Active",
+                          "pending": "Requested", "requested": "Requested",
+                          "approved": "Active", "active": "Active",
                           "expired": "Expired", "converted": "Converted",
-                          "declined": "Declined"},
+                          "rejected": "Declined", "declined": "Declined"},
         "Lost Reason": {"price": "Price", "no_response": "No Response",
                         "device_or_internet": "Device or Internet",
                         "location": "Location", "competitor": "Competitor",
                         "other": "Other"},
     },
     "02_Free_Trials": {
-        "Trial Status": {"requested": "Requested", "approved": "Approved",
+        "Trial Status": {"pending": "Requested", "requested": "Requested",
+                         "offered": "Approved", "approved": "Approved",
                          "active": "Active", "expired": "Expired",
-                         "converted": "Converted", "rejected": "Declined"},
+                         "converted": "Converted", "rejected": "Declined",
+                         "declined": "Declined", "revoked": "Revoked"},
         "Duplicate Check": {"clear": "Clear", "needs_review": "Needs Review",
                             "duplicate": "Duplicate"},
     },
@@ -492,37 +498,42 @@ VALUE_MAPS: dict[str, dict[str, dict[str, str]]] = {
         "Preferred Language": LANG_TO_MANIFEST,
         "Customer Status": {"active": "Active", "renewal_due": "Renewal Due",
                             "expired": "Expired", "suspended": "On Hold",
-                            "cancelled": "Cancelled"},
+                            "on_hold": "On Hold", "cancelled": "Cancelled"},
         "Preferred Setup": PREF_SETUP_TO_MANIFEST,
     },
     "05_Subscriptions": {
-        "Subscription Status": {"pending_setup": "Pending", "active": "Active",
-                                "renewal_due": "Renewal Due", "expired": "Expired",
-                                "suspended": "Suspended", "cancelled": "Cancelled"},
+        "Subscription Status": {"pending": "Pending", "pending_setup": "Pending",
+                                "active": "Active", "renewal_due": "Renewal Due",
+                                "expired": "Expired", "suspended": "Suspended",
+                                "cancelled": "Cancelled"},
     },
     "06_Payments": {
-        "Payment For": {"subscription": "New Subscription", "renewal": "Renewal",
-                        "installation": "Installation", "hardware": "Device Upgrade",
-                        "reseller_deposit": "Reseller Deposit", "other": "Other"},
+        "Payment For": {"subscription": "New Subscription", "new_subscription": "New Subscription",
+                        "renewal": "Renewal", "installation": "Installation",
+                        "hardware": "Device Upgrade", "reseller_deposit": "Reseller Deposit",
+                        "other": "Other"},
         "Currency": {"SLE": "SLE", "USD": "USD"},
         "Payment Method": PAY_METHOD_TO_MANIFEST,
-        "Payment Status": {"pending": "Pending", "verifying": "Verification Required",
+        "Payment Status": {"pending": "Pending", "awaiting_payment": "Pending",
+                           "verifying": "Verification Required",
                            "confirmed": "Confirmed", "partial": "Partially Paid",
-                           "rejected": "Failed", "refunded": "Refunded"},
+                           "rejected": "Failed", "failed": "Failed",
+                           "refunded": "Refunded"},
     },
     "07_Installations": {
         "Setup Type": SETUP_TYPE_TO_MANIFEST,
-        "Booking Status": {"pending_quote": "Requested", "quote_issued": "Quote Sent",
-                           "booked": "Confirmed", "scheduled": "Scheduled",
+        "Booking Status": {"pending": "Requested", "pending_quote": "Requested",
+                           "quote_issued": "Quote Sent", "booked": "Confirmed",
+                           "confirmed": "Confirmed", "scheduled": "Scheduled",
                            "en_route": "En Route", "in_progress": "In Progress",
-                           "completed": "Completed", "reschedule": "Reschedule",
-                           "cancelled": "Cancelled"},
+                           "verified": "Completed", "completed": "Completed",
+                           "reschedule": "Reschedule", "cancelled": "Cancelled"},
     },
     "08_Devices": {
         "Device Type": DEV_TYPE_TO_MANIFEST,
-        "Device Status": {"pending": "Trial", "active": "Active",
-                          "inactive": "Disconnected", "replaced": "Replaced",
-                          "blocked": "Blocked"},
+        "Device Status": {"pending": "Trial", "trial": "Trial", "active": "Active",
+                          "inactive": "Disconnected", "disconnected": "Disconnected",
+                          "replaced": "Replaced", "blocked": "Blocked"},
     },
     "09_Resellers": {
         "Reseller Type": {"individual": "Individual", "business": "Shop",
@@ -587,8 +598,9 @@ VALUE_MAPS: dict[str, dict[str, dict[str, str]]] = {
         "Reward Type": {"days": "Bonus Viewing Days", "cash": "Approved Discount",
                         "discount": "Approved Discount", "none": "Other", "other": "Other"},
         "Reward Status": {"pending": "Pending", "qualified": "Qualified",
-                          "approved": "Approved", "applied": "Applied",
-                          "paid": "Applied", "rejected": "Rejected"},
+                          "verified": "Approved", "approved": "Approved",
+                          "applied": "Applied", "paid": "Applied",
+                          "rejected": "Rejected"},
     },
     "15_Staff": {
         "Role": {"sales": "Sales", "technician": "Technician", "support": "Support",
@@ -624,9 +636,12 @@ VALUE_MAPS: dict[str, dict[str, dict[str, str]]] = {
                    "manual_pending": "Due", "done": "Completed",
                    "completed": "Completed", "cancelled": "Cancelled"},
         "Outcome": {"interested": "Interested", "no_answer": "No Answer",
-                    "need_follow_up": "Need Follow-up", "converted": "Converted",
-                    "not_interested": "Not Interested", "resolved": "Resolved",
-                    "other": "Other"},
+                    "need_follow_up": "Need Follow-up", "pending": "Need Follow-up",
+                    "requested": "Need Follow-up", "setup_credentials": "Need Follow-up",
+                    "visit_quote": "Need Follow-up", "trial_request": "Need Follow-up",
+                    "compatibility_check": "Need Follow-up", "image": "Need Follow-up",
+                    "converted": "Converted", "not_interested": "Not Interested",
+                    "resolved": "Resolved", "done": "Resolved", "other": "Other"},
     },
     "18_Service_Zones": {
         "Installation Type": {"staff_visit": "Physical Visit",
@@ -637,21 +652,53 @@ VALUE_MAPS: dict[str, dict[str, dict[str, str]]] = {
     },
 }
 
+_SELECT_OPTIONS: dict[str, dict[str, set[str]]] = {}
+for _tbl, _flds in FIELD_SCHEMAS.items():
+    for _f in _flds:
+        if _f.get("type") == "select":
+            _SELECT_OPTIONS.setdefault(_tbl, {})[_f["name"]] = {
+                o["name"] for o in _f.get("options", [])
+            }
+
+
+def package_id_for(months: int, device_count: int) -> str:
+    """Return the canonical PKG-01..PKG-16 code for a (months, device_count) pair."""
+    m_offset = {1: 0, 3: 4, 6: 8, 12: 12}.get(int(months or 0))
+    if m_offset is None or int(device_count or 0) <= 0:
+        return ""
+    tier = min(int(device_count), 4)
+    return f"PKG-{m_offset + tier:02d}"
+
 
 def map_value(table: str, column: str, value):
     """Translate a bot value to the manifest option label when a map exists."""
     if value is None:
         return None
     col_map = VALUE_MAPS.get(table, {}).get(column)
-    if not col_map:
-        return value
     s = str(value)
-    return col_map.get(s, col_map.get(s.lower(), value))
+    mapped = col_map.get(s, col_map.get(s.lower(), value)) if col_map else value
+    allowed = _SELECT_OPTIONS.get(table, {}).get(column)
+    if allowed is not None:
+        ms = str(mapped)
+        if ms in allowed:
+            return ms
+        for opt in allowed:
+            if opt.lower() == ms.lower():
+                return opt
+        if "Other" in allowed:
+            return "Other"
+        return None
+    return mapped
 
 
 def map_record(table: str, record: dict) -> dict:
     """Apply VALUE_MAPS to every mapped column of a record dict."""
-    return {col: map_value(table, col, val) for col, val in record.items()}
+    out = {}
+    for col, val in record.items():
+        mv = map_value(table, col, val)
+        if mv is not None:
+            out[col] = mv
+    return out
 
 
 # Seed packages: prices from the owner's v6 workbook (PKG-01..16), manifest options.
@@ -673,3 +720,21 @@ SEED_PACKAGES: list[dict] = [
     {"Package ID": "PKG-15", "Package Name": "12 Months / 3 Devices", "Duration Months": 12, "Device Tier": "3 Devices", "Minimum Devices": 3, "Reference Device Count": 3, "Unit Price SLE": 1400, "Promotion Discount %": 20, "Trial Eligible": True, "Trial Hours": 24, "Available": "Yes", "Price Version": "v7-lark", "Package Notes": "4+ ties to PKG-16"},
     {"Package ID": "PKG-16", "Package Name": "12 Months / 4+ Devices", "Duration Months": 12, "Device Tier": "4+ Devices", "Minimum Devices": 4, "Reference Device Count": 4, "Unit Price SLE": 1200, "Promotion Discount %": 20, "Trial Eligible": True, "Trial Hours": 24, "Available": "Yes", "Price Version": "v7-lark", "Package Notes": "PER DEVICE price"},
 ]
+
+SEED_STAFF: list[dict] = [
+    {"Staff ID": "STAFF-01", "Staff Name": "NexgloTV Admin Desk", "Role": "Admin", "Region or Territory": "All Regions", "Staff Status": "Active", "Lead Capacity": 100, "Installation Capacity": 20, "Notes": "Primary admin and bot supervisor"},
+    {"Staff ID": "STAFF-02", "Staff Name": "NexgloTV Sales Desk", "Role": "Sales", "Region or Territory": "Western Area", "Staff Status": "Active", "Supervisor Staff ID": "STAFF-01", "Lead Capacity": 80, "Installation Capacity": 0, "Notes": "Lead follow-up & trial approvals"},
+    {"Staff ID": "STAFF-03", "Staff Name": "NexgloTV Field Technician", "Role": "Technician", "Region or Territory": "Freetown & Western Area", "Staff Status": "Active", "Supervisor Staff ID": "STAFF-01", "Lead Capacity": 20, "Installation Capacity": 15, "Notes": "Physical installation & on-site setup"},
+    {"Staff ID": "STAFF-04", "Staff Name": "NexgloTV Support Desk", "Role": "Support", "Region or Territory": "All Regions", "Staff Status": "Active", "Supervisor Staff ID": "STAFF-01", "Lead Capacity": 50, "Installation Capacity": 10, "Notes": "Remote setup, credentials & troubleshooting"},
+    {"Staff ID": "STAFF-05", "Staff Name": "NexgloTV Finance Desk", "Role": "Finance", "Region or Territory": "All Regions", "Staff Status": "Active", "Supervisor Staff ID": "STAFF-01", "Lead Capacity": 50, "Installation Capacity": 0, "Notes": "Payment verification & reseller payouts"},
+]
+
+SEED_SERVICE_ZONES: list[dict] = [
+    {"Zone ID": "ZONE-01", "Region": "Western Area", "District or Town": "Freetown Central", "Covered Communities": "Central, Pademba Rd, Siaka Stevens St, Circular Rd, Brookfields", "Installation Type": "Both", "Standard Visit Fee SLE": 100, "Transport Fee SLE": 0, "Additional Device Fee SLE": 50, "Service Available": "Yes", "Assigned Technician ID": "STAFF-03", "Notes": "Standard central Freetown coverage"},
+    {"Zone ID": "ZONE-02", "Region": "Western Area", "District or Town": "Freetown West End", "Covered Communities": "Lumley, Aberdeen, Murray Town, Wilkinson Rd, Spur Rd, Juba, Goderich", "Installation Type": "Both", "Standard Visit Fee SLE": 120, "Transport Fee SLE": 30, "Additional Device Fee SLE": 50, "Service Available": "Yes", "Assigned Technician ID": "STAFF-03", "Notes": "West End home/office visit zone"},
+    {"Zone ID": "ZONE-03", "Region": "Western Area", "District or Town": "Freetown Hill & Mountain", "Covered Communities": "Hill Station, Wilberforce, Regent, Gloucester, Leicester, IMATT", "Installation Type": "Both", "Standard Visit Fee SLE": 150, "Transport Fee SLE": 50, "Additional Device Fee SLE": 50, "Service Available": "Yes", "Assigned Technician ID": "STAFF-03", "Notes": "Hilltop communities"},
+    {"Zone ID": "ZONE-04", "Region": "Western Area", "District or Town": "Freetown East End", "Covered Communities": "Cline Town, Kissy, Wellington, Calaba Town, Allen Town", "Installation Type": "Both", "Standard Visit Fee SLE": 150, "Transport Fee SLE": 50, "Additional Device Fee SLE": 50, "Service Available": "Yes", "Assigned Technician ID": "STAFF-03", "Notes": "East End coverage"},
+    {"Zone ID": "ZONE-05", "Region": "Western Area", "District or Town": "Western Area Rural", "Covered Communities": "Jui, Grafton, Hastings, Waterloo, Tokeh, Lakka", "Installation Type": "Both", "Standard Visit Fee SLE": 200, "Transport Fee SLE": 80, "Additional Device Fee SLE": 50, "Service Available": "On Request", "Assigned Technician ID": "STAFF-03", "Notes": "Scheduled visit or remote setup"},
+    {"Zone ID": "ZONE-06", "Region": "Provinces", "District or Town": "Bo / Kenema / Makeni / Kono", "Covered Communities": "Bo, Kenema, Makeni, Koidu, Port Loko, Lungi", "Installation Type": "Remote", "Standard Visit Fee SLE": 0, "Transport Fee SLE": 0, "Additional Device Fee SLE": 0, "Service Available": "Yes", "Assigned Technician ID": "STAFF-04", "Notes": "Remote WhatsApp guided setup"},
+]
+

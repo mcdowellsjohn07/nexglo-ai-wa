@@ -36,9 +36,9 @@ def test_full_price_list_and_unknown_items(agent, wa):
     ask(agent, "¿cuáles son sus precios?")
     body = wa.last("text")["body"]
     assert body.startswith("Nuestros precios (USD):") and body.count("✂️") == 6
-    # Not in the catalog: falls back to the knowledge base (prices.md has it).
-    ask(agent, "¿cuánto cuesta el diseño de líneas?")
-    assert "desde $3" in wa.last("text")["body"]
+    # Not in the catalog: falls back to the knowledge base.
+    ask(agent, "¿qué velocidad de internet en Mbps recomiendan?")
+    assert "mbps" in wa.last("text")["body"].lower()
 
 
 def test_hours_questions(agent, wa):
@@ -53,13 +53,13 @@ def test_hours_questions(agent, wa):
 
 
 def test_english_questions_retrieve_spanish_articles(agent, store, wa):
-    ask(agent, "where are you located?")
+    ask(agent, "can I pay with Orange Money?")
     body = wa.last("text")["body"]
-    assert body.startswith("Here's what I found:") and "Calle 50" in body
-    ask(agent, "do you accept credit cards?")
-    assert "Visa" in wa.last("text")["body"]
-    ask(agent, "¿cuánto dura un corte?")
-    assert "30 minutos" in wa.last("text")["body"]
+    assert body.startswith("Here's what I found:") and "Orange Money" in body
+    ask(agent, "what internet speed in Mbps is required?")
+    assert "Mbps" in wa.last("text")["body"]
+    ask(agent, "¿tienen canales de Premier League?")
+    assert "Champions League" in wa.last("text")["body"]
     assert store.open_handoffs() == []
 
 
@@ -75,7 +75,7 @@ def test_llm_gets_catalog_facts_and_the_configured_business(store, kb, wa, clock
     assert "a family barbershop in David, Chiriquí" in system and "Panama City" not in system
     assert "BUSINESS FACTS" in user and "Corte de cabello (Haircut): $12, 30 min" in user
     assert "Friday: 9:00 a.m. - 8:00 p.m." in user
-    assert "Lista de precios" in user  # the KB context is still there
+    assert "Price Table" in user  # the KB context is still there
 
 
 def test_llm_failure_falls_back_to_catalog_facts(store, kb, wa, clock):
@@ -95,4 +95,4 @@ def test_llm_intent_can_route_to_manage(store, kb, wa, clock):
 def test_offline_agent_never_calls_the_llm(agent, wa):
     assert isinstance(agent.llm, OfflineLLM)
     agent.handle_message(tap_msg(ANA, "menu:info"))
-    assert wa.last("text")["body"].startswith("Claro. Pregúntame")
+    assert wa.last("text")["body"].startswith(("Claro. Pregúntame", "Sure. Ask me anything"))

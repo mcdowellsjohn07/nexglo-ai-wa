@@ -41,9 +41,10 @@ _STOPWORDS = {
     "where", "when", "which", "who", "why", "are", "can", "i", "my", "me", "there",
     "any", "much", "be", "have", "has", "if", "or", "by", "from", "about", "get",
     "hola", "hi", "hello", "please", "favor", "gracias", "thanks",
-    # Price verbs: their meaning is carried by the lexicon ("cuesta" -> "precio"),
-    # and on their own they match any sentence that mentions a price.
-    "cuesta", "cuestan", "vale", "valen", "cobran",
+    # Price & generic commerce verbs: their meaning is carried by the noun/lexicon,
+    # and on their own they match unrelated sentences ("We do not sell hardware").
+    "cuesta", "cuestan", "vale", "valen", "cobran", "sell", "venden", "vende",
+    "not", "don", "doesn", "didn", "won", "can", "cannot",
 }
 _LEXICON_FILE = "_lexicon.json"
 
@@ -111,8 +112,20 @@ class KnowledgeBase:
         for key, values in raw.items():
             if key.startswith("_"):
                 continue  # comments
-            # Keys are matched on stemmed words, so "mondays" finds "monday".
-            lexicon[" ".join(stem(w) for w in _words(key))] = [v for value in values for v in _words(value)]
+            phrases = [key, *values]
+            group_words: list[str] = []
+            for p in phrases:
+                for w in _words(p):
+                    if w not in group_words:
+                        group_words.append(w)
+            for p in phrases:
+                stemmed_phrase = " ".join(stem(w) for w in _words(p))
+                if not stemmed_phrase:
+                    continue
+                existing = lexicon.setdefault(stemmed_phrase, [])
+                for w in group_words:
+                    if w not in existing:
+                        existing.append(w)
         return lexicon
 
     def _load(self) -> list[Chunk]:

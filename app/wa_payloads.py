@@ -29,10 +29,18 @@ def text_payload(to: str, body: str, preview_url: bool = False) -> dict:
     return payload
 
 
-def image_payload(to: str, link: str, caption: str = "") -> dict:
+def image_payload(
+    to: str,
+    link: str = "",
+    caption: str = "",
+    *,
+    media_id: str = "",
+    image_url: str = "",
+) -> dict:
     payload = _base(to)
     payload["type"] = "image"
-    image: dict = {"link": link}
+    resolved_link = link or image_url
+    image: dict = {"id": media_id} if media_id else {"link": resolved_link}
     if caption:
         image["caption"] = caption[:1024]
     payload["image"] = image
@@ -155,7 +163,8 @@ def render(payload: dict) -> Rendered:
     if ptype == "image":
         image = payload["image"]
         caption = image.get("caption", "")
-        return Rendered("image", to, f"[image] {image.get('link', '')} {caption}".strip())
+        source = image.get("link") or image.get("id") or ""
+        return Rendered("image", to, f"[image] {source} {caption}".strip())
     if ptype == "interactive":
         inter = payload["interactive"]
         body = inter.get("body", {}).get("text", "")

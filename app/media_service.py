@@ -28,7 +28,7 @@ class MediaService:
         self.price_card_media_url = price_card_media_url
         self.price_card_media_id = price_card_media_id
 
-    async def send_price_card(
+    def send_price_card(
         self,
         wa_id: str,
         caption: str = "NexgloTV — 20% OFF Subscription Packages",
@@ -39,22 +39,24 @@ class MediaService:
         # Try media_id first (already uploaded to Meta)
         if self.price_card_media_id:
             try:
-                await self.wa.send_image(wa_id, media_id=self.price_card_media_id, caption=caption)
-                return MediaSendResult(True, "price_card_sent_via_media_id", self.price_card_media_id)
-            except Exception as e:
+                resp = self.wa.send_image(wa_id, media_id=self.price_card_media_id, caption=caption)
+                if resp is not None:
+                    return MediaSendResult(True, "price_card_sent_via_media_id", self.price_card_media_id)
+            except Exception:
                 pass  # Fall through to URL
 
         # Try public HTTPS URL
         if self.price_card_media_url:
             try:
-                await self.wa.send_image(wa_id, image_url=self.price_card_media_url, caption=caption)
-                return MediaSendResult(True, "price_card_sent_via_url", None)
-            except Exception as e:
+                resp = self.wa.send_image(wa_id, image_url=self.price_card_media_url, caption=caption)
+                if resp is not None:
+                    return MediaSendResult(True, "price_card_sent_via_url", None)
+            except Exception:
                 pass  # Fall through to text
 
         return MediaSendResult(False, "price_card_send_failed_no_media_configured", None)
 
-    async def send_app_icon(
+    def send_app_icon(
         self,
         wa_id: str,
         app_icon_url: str,
@@ -66,7 +68,9 @@ class MediaService:
         if not app_icon_url:
             return MediaSendResult(False, "no_app_icon_url", None)
         try:
-            await self.wa.send_image(wa_id, image_url=app_icon_url, caption=caption)
-            return MediaSendResult(True, "app_icon_sent", None)
+            resp = self.wa.send_image(wa_id, image_url=app_icon_url, caption=caption)
+            if resp is not None:
+                return MediaSendResult(True, "app_icon_sent", None)
+            return MediaSendResult(False, "app_icon_send_failed", None)
         except Exception as e:
             return MediaSendResult(False, f"app_icon_send_failed: {e}", None)

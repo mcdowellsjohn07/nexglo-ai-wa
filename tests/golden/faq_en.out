@@ -1,29 +1,60 @@
 you › hi
-bot › Hi! 👋 I'm the assistant for Barbería Studio Norte. How can I help today?
-      [1] Book appointment   [2] Info & prices   [3] Talk to a person
-you › how much is a haircut?
-bot › ✂️ Haircut: $12 · 30 min
+bot › Hi! 👋 I'm the NexgloTV assistant. How can I help today?
+      ☰ See options
+        1) View packages
+        2) Devices & installation
+        3) Renew subscription
+        4) Technical support
+        5) Talk to a person
+you › how much is a package?
+bot › Understood. Here are the prices with 20% off:
 
-      Ask about our *promotions* too. To book, type *book*. 💈
-you › what time do you close on friday?
-bot › 🕐 On Friday we're open from 9:00 a.m. to 8:00 p.m. (last appointment: 7:00 p.m.).
-you › where are you located?
-bot › Here's what I found:
+      📺 **NexgloTV — 20% OFF Subscription Packages**
 
-      *Dirección*
+      **1 month**
+        1 device: Le180
+        2 devices: Le320
+        3 devices: Le420
+        4+ devices: Le120 each (total Le480)
 
-      Barbería Studio Norte
-      Calle 50, Edificio Costa del Este, local 3
-      Ciudad de Panamá, Panamá
-you › do you accept credit cards?
-bot › Here's what I found:
+      **3 months**
+        1 device: Le500
+        2 devices: Le900
+        3 devices: Le1,200
+        4+ devices: Le340 each (total Le1,360)
 
-      *¿Aceptan tarjeta y Yappy?*
+      **6 months**
+        1 device: Le950
+        2 devices: Le1,700
+        3 devices: Le2,250
+        4+ devices: Le640 each (total Le2,560)
 
-      Sí, aceptamos efectivo, tarjetas Visa y Mastercard, Yappy y ACH.
+      **12 months**
+        1 device: Le1,800
+        2 devices: Le3,200
+        3 devices: Le4,200
+        4+ devices: Le1,200 each (total Le4,800)
+
+      Prices in Sierra Leonean Leones (Le). No VAT added.
+      4+ devices priced PER DEVICE.
+      Reply with your choice (e.g. '3 months 2 devices') or ask questions.
+
+      Which package would you like?
+you › what internet speed is required?
+bot › NexgloTV needs a stable internet connection. QCell is a local option.
+      Around **3 Mbps** may suit basic lower-quality streaming, but HD quality depends on your connection.
+      What internet are you using now?
+you › do you have sports channels?
+bot › We offer a wide range of sports and TV entertainment, but exact channels and matches can change.
+      Tell me the channel or competition you want and I'll help check its current availability.
 you › do you sell guitars?
-bot › I couldn't find anything about that. Would you like me to connect you with someone from the Barbería Studio Norte team?
-      [1] Talk to a person   [2] Menu
-you › [Menu]
-bot › Hi! 👋 I'm the assistant for Barbería Studio Norte. How can I help today?
-      [1] Book appointment   [2] Info & prices   [3] Talk to a person
+bot › I couldn't find anything about that. Would you like me to connect you with someone from the NexgloTV team?
+      [1] Talk to a person   [2] Main menu
+you › [Main menu]
+bot › Hi! 👋 I'm the NexgloTV assistant. How can I help today?
+      ☰ See options
+        1) View packages
+        2) Devices & installation
+        3) Renew subscription
+        4) Technical support
+        5) Talk to a person

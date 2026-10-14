@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.catalog import t
 from app.config import Settings
 from app.deps import build_services
 from app.main import create_app
+from app.nexglo_catalog import t
 
-from .conftest import FakeWhatsApp, OfflineLLM, tap_msg, text_msg
+from .conftest import FakeWhatsApp, OfflineLLM, text_msg
 
 TOKEN = "".join(["staff", "-", "token", "-", "for", "-", "tests"])
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -68,7 +68,7 @@ def test_handoff_shows_up_in_the_queue_with_context(client, services):
     assert item["window"]["open"] is True
     authors = [m["author"] for m in item["last_messages"]]
     assert authors == ["customer", "bot", "customer", "bot"]
-    assert item["last_messages"][-1]["content"].startswith("Con gusto.")
+    assert item["last_messages"][-1]["content"] == t("handoff", "es", business="NexgloTV")
 
 
 def test_staff_reply_goes_out_through_whatsapp_and_is_logged(client, services, wa):
@@ -84,7 +84,7 @@ def test_staff_reply_goes_out_through_whatsapp_and_is_logged(client, services, w
 
     # The bot stays quiet while staff handle the chat.
     wa.sent.clear()
-    say(services, "el corte quedó disparejo")
+    say(services, "necesito ayuda con mi cuenta")
     assert wa.outbound() == []
 
 
@@ -118,7 +118,7 @@ def test_reply_errors(client, services, wa):
 
 
 def test_staff_can_step_in_without_a_handoff(client, services, wa):
-    say(services, "quiero una cita")  # mid-booking
+    say(services, "cuánto cuesta?")  # mid-flow
     assert client.post(f"/admin/conversations/{ANA}/reply", json={"text": "Te ayudo yo"}, headers=AUTH).status_code == 200
     conv = services.store.get_conversation(ANA)
     assert conv.handoff is True and conv.state == "human" and conv.draft == {}
@@ -131,7 +131,7 @@ def test_resolve_hands_the_chat_back_to_the_bot(client, services, wa):
     resp = client.post(f"/admin/handoffs/{ANA}/resolve", json={"notify": True}, headers=AUTH)
     assert resp.status_code == 200
     assert resp.json() == {"wa_id": ANA, "resolved": 1, "bot_active": True, "notified": True, "note": None}
-    assert wa.last("text")["body"] == t("handoff_resolved", "es", business="Barbería Studio Norte")
+    assert wa.last("text")["body"] == t("handoff_resolved", "es", business="NexgloTV")
     assert client.get("/admin/handoffs", headers=AUTH).json()["count"] == 0
 
     conv = services.store.get_conversation(ANA)
@@ -140,7 +140,7 @@ def test_resolve_hands_the_chat_back_to_the_bot(client, services, wa):
     # The next customer message gets a bot reply again.
     wa.sent.clear()
     say(services, "hola")
-    assert wa.last_options() == ["menu:booking", "menu:info", "menu:human"]
+    assert wa.last_options() == ["menu:packages", "menu:devices", "menu:renewal", "menu:support", "menu:human"]
 
 
 def test_resolve_without_notification_and_outside_the_window(client, services, clock, wa):
@@ -152,26 +152,29 @@ def test_resolve_without_notification_and_outside_the_window(client, services, c
 
 
 def test_resolving_a_chat_that_was_never_handed_off_changes_nothing(client, services, wa):
-    say(services, "quiero una cita")  # mid-booking, never handed off
+    say(services, "cuánto cuesta?")  # mid-flow, never handed off
     wa.sent.clear()
     resp = client.post(f"/admin/handoffs/{ANA}/resolve", headers=AUTH).json()
     assert resp["resolved"] == 0 and resp["notified"] is False
     assert wa.outbound() == []
-    assert services.store.get_conversation(ANA).state == "booking_service"
+    assert services.store.get_conversation(ANA).state == "prices_sent"
 
 
 def test_bookings_listing_and_staff_cancellation(client, services, wa):
-    agent = services.agent
-    say(services, "quiero una cita")
-    agent.handle_message(tap_msg(ANA, "svc:svc_corte"))
-    agent.handle_message(tap_msg(ANA, "date:2026-09-25"))
-    agent.handle_message(tap_msg(ANA, "time:15:00"))
-    agent.handle_message(tap_msg(ANA, "name:profile"))
-    agent.handle_message(tap_msg(ANA, "confirm:yes"))
+    say(services, "hola")
+    booking_id = services.store.create_booking(
+        wa_id=ANA,
+        customer_name="Ana Gómez",
+        service_id="staff_visit",
+        service_label="Visita técnica",
+        date="2026-09-25",
+        time="15:00",
+    )
 
     listing = client.get("/admin/bookings", params={"date": "2026-09-25"}, headers=AUTH).json()
     assert listing["count"] == 1
     booking = listing["bookings"][0]
+    assert booking["id"] == booking_id
     assert (booking["customer_name"], booking["time"], booking["status"]) == ("Ana Gómez", "15:00", "confirmed")
     assert client.get("/admin/bookings", headers=AUTH).json()["count"] == 1  # default: today onwards
     assert client.get("/admin/bookings", params={"date": "25/09"}, headers=AUTH).status_code == 422
@@ -180,7 +183,7 @@ def test_bookings_listing_and_staff_cancellation(client, services, wa):
     resp = client.post(f"/admin/bookings/{booking['id']}/cancel", json={"notify": True}, headers=AUTH).json()
     assert resp["booking"]["status"] == "cancelled" and resp["booking"]["cancelled_by"] == "staff"
     assert resp["notified"] is True
-    assert wa.last("text")["body"].startswith("Hola Ana Gómez, el equipo de Barbería Studio Norte canceló tu cita")
+    assert wa.last("text")["body"].startswith("Hola Ana Gómez, el equipo de NexgloTV canceló tu cita")
     assert services.store.booked_times("2026-09-25") == set()
 
     again = client.post(f"/admin/bookings/{booking['id']}/cancel", headers=AUTH)

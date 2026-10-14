@@ -1,25 +1,14 @@
-# Book, then reschedule and cancel it, in English.
+# Package selection, change package, and Smart TV setup in English.
 # Replay: python -m app chat --offline --now 2026-09-24T09:00 --script examples/manage_en.txt
-I want to book an appointment
-# 1) Haircut
+How much does it cost?
+3 months 2 devices
+# [3] Change package
+3
+6 months 2 devices
+# [1] Yes, ready to pay
 1
-# typed answers work too: "tomorrow" and "4pm"
-tomorrow
-4pm
-# [1] the WhatsApp profile name button
-1
-# [1] Confirm
-1
-I need to reschedule my appointment
-# [2] Reschedule
-2
-saturday
-11am
-# [1] Confirm the change
-1
-cancel my appointment
-# [1] Cancel it
-1
-# [1] Yes, cancel
+3
+Samsung 55 TU7000
+# [1] Self-install (free)
 1
 /bookings

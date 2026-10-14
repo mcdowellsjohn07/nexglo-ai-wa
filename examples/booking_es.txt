@@ -1,23 +1,12 @@
-# Reserva completa en español, con una pregunta a mitad del flujo.
+# Flujo de suscripción en español con pregunta a mitad del proceso.
 # Reproducir: python -m app chat --offline --now 2026-09-24T09:00 --script examples/booking_es.txt
-# Un número toca la opción N del último mensaje con botones o lista.
 hola
-# [1] Reservar cita
+# 1) Ver paquetes
 1
-# 2) Corte + barba
-2
-# Una pregunta a mitad de la reserva: responde y retoma el paso.
-¿cuánto cuesta el corte + barba?
-# 2) Vie 25 sep (mañana)
-2
-# 10) Más horarios: el viernes tiene 11 horarios y WhatsApp permite 10 filas.
-10
-# 2) 19:00
-2
-# El nombre de perfil de WhatsApp se ofrece como botón; aquí lo escribimos.
-Carlos Ruiz
-# [1] Confirmar
+3 meses 2 dispositivos
+# [1] Sí, listo para pagar
 1
-mis citas
-# [3] Dejarla así
-3
+1
+# [1] Instalar yo mismo
+1
+/state

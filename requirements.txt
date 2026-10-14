@@ -11,6 +11,11 @@ openai>=1.30
 # IANA timezone database (needed on Windows for zoneinfo)
 tzdata>=2024.1
 
+# Configuration & CRM integrations
+PyYAML>=6.0
+gspread>=6.0
+google-auth>=2.0
+
 # --- Optional: local voice-note transcription ---
 # Uncomment to enable audio transcription. Requires ffmpeg on your PATH.
 # faster-whisper>=1.0

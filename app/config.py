@@ -41,6 +41,8 @@ def is_placeholder(value: Optional[str]) -> bool:
         return True
     if v.lower() in _PLACEHOLDERS:
         return True
+    if v.upper().startswith("REPLACE_WITH_"):
+        return True
     if "XXXX" in v.upper():
         return True  # EAAG_XXXXXXXX..., nvapi-XXXXXXXX...
     if set(v) <= {"0"}:
@@ -157,7 +159,7 @@ class Settings:
             price_card_media_url=get("PRICE_CARD_MEDIA_URL"),
             price_card_media_id=get("PRICE_CARD_MEDIA_ID"),
             discount_percent=int(get("DISCOUNT_PERCENT", "20")),
-            discount_active=_parse_bool(get("DISCOUNT_ACTIVE")) or True,
+            discount_active=True if _parse_bool(get("DISCOUNT_ACTIVE")) is None else bool(_parse_bool(get("DISCOUNT_ACTIVE"))),
             db_path_override=Path(db_path) if db_path else None,
         )
 

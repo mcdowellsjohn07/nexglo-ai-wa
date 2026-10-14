@@ -41,24 +41,22 @@ In this excerpt from `examples/booking_es.txt` the customer asks a question mid-
 
 <!-- transcript: booking_es -->
 ```text
-you › ¿cuánto cuesta el corte + barba?
-bot › ✂️ Corte + barba: $18 · 45 min
+you › 3 meses 2 dispositivos
+bot › 👍 **3 meses para 2 dispositivos** cuesta **Le900**.
 
-      Pregunta también por nuestras *promociones*. Para reservar, escribe *reservar*. 💈
-bot › ¿Para qué día? Estos son los próximos días disponibles:
-      ☰ Elegir día
-        1) Jue 24 sep · Hoy
-        2) Vie 25 sep · Mañana
+      Podemos ayudarte a instalar y probar el servicio **antes de pagar** la suscripción.
+      ¿Te parece bien pagar una vez confirmemos que todo funciona?
+      [1] Sí, listo para pagar   [2] Lo voy a pensar   [3] Cambiar paquete
 ```
 
 <!-- transcript: booking_es -->
 ```text
-       10) Más horarios ➡️ · Después de las 17:00
-you › [Más horarios ➡️]
-bot › ¿A qué hora te viene bien el Vie 25 sep?
-      ☰ Elegir hora
-        1) 18:00
-        2) 19:00
+you › 1
+bot › Podemos guiarte en la instalación **gratis** antes del pago 😊.
+      Si prefieres que nuestro equipo te visite, puede haber un cargo adicional por desplazamiento.
+
+      ¿Prefieres instalar tú mismo con nuestra ayuda o agendar una visita?
+      [1] Instalar yo (gratis)   [2] Visita del equipo
 ```
 
 ## Features
@@ -187,20 +185,13 @@ From `examples/faq_en.txt`. Prices and hours come from the catalog, and the rest
 
 <!-- transcript: faq_en -->
 ```text
-you › how much is a haircut?
-bot › ✂️ Haircut: $12 · 30 min
-
-      Ask about our *promotions* too. To book, type *book*. 💈
-you › what time do you close on friday?
-bot › 🕐 On Friday we're open from 9:00 a.m. to 8:00 p.m. (last appointment: 7:00 p.m.).
-you › where are you located?
-bot › Here's what I found:
-
-      *Dirección*
-
-      Barbería Studio Norte
-      Calle 50, Edificio Costa del Este, local 3
-      Ciudad de Panamá, Panamá
+you › what internet speed is required?
+bot › NexgloTV needs a stable internet connection. QCell is a local option.
+      Around **3 Mbps** may suit basic lower-quality streaming, but HD quality depends on your connection.
+      What internet are you using now?
+you › do you have sports channels?
+bot › We offer a wide range of sports and TV entertainment, but exact channels and matches can change.
+      Tell me the channel or competition you want and I'll help check its current availability.
 ```
 
 When nothing matches, the bot does not open a handoff by itself. It asks whether the customer wants a person:
@@ -208,8 +199,8 @@ When nothing matches, the bot does not open a handoff by itself. It asks whether
 <!-- transcript: faq_en -->
 ```text
 you › do you sell guitars?
-bot › I couldn't find anything about that. Would you like me to connect you with someone from the Barbería Studio Norte team?
-      [1] Talk to a person   [2] Menu
+bot › I couldn't find anything about that. Would you like me to connect you with someone from the NexgloTV team?
+      [1] Talk to a person   [2] Main menu
 ```
 
 ## Staff workflow (human handoff)
@@ -243,7 +234,7 @@ You can rehearse all of this in the simulator with `/staff`, `/resolve`, `/queue
 <!-- transcript: handoff_es -->
 ```text
 you › necesito hablar con una persona
-bot › Con gusto. Un miembro del equipo de Barbería Studio Norte continuará esta conversación contigo lo antes posible. 🙌 Mientras tanto puedes dejar tu mensaje aquí.
+bot › Perfecto ✅ Como ya tienes la app instalada, solicito a nuestro equipo de configuración que te entregue tu acceso y verifique que todo funcione antes del pago de tu suscripción.
 you › ¿hola? ¿sigue alguien ahí?
    1 open handoff(s)
    - 50760001234 Ana reason=requested
@@ -255,7 +246,7 @@ staff › Hola Ana, soy Carlos del equipo. ¿En qué te ayudo?
    ⏱ clock advanced 25h
    ✖ staff: template_required: Outside WhatsApp's 24-hour window (the customer last wrote 25.0 h ago). Free-form messages are not allowed; send an approved message template instead (see docs/meta-setup.md, section 7).
 you › BAJA
-bot › Listo, no te enviaremos más mensajes por este chat. Si cambias de opinión, escribe ALTA (o START). 👋
+bot › Entendido. No te enviaremos más mensajes promocionales por este chat. Si cambias de opinión, escribe ALTA (o START). 👋
 you › hola
 you › ALTA
 bot › ¡Bienvenido de vuelta! Volverás a recibir nuestras respuestas. 🙌

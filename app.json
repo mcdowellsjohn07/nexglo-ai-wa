@@ -1,0 +1,109 @@
+{
+  "name": "NexgloTV WhatsApp AI Agent",
+  "description": "WhatsApp AI Business Assistant for NexgloTV subscriptions in Sierra Leone",
+  "repository": "https://github.com/AleBrito124356/whatsapp-ai-agent",
+  "keywords": ["whatsapp", "fastapi", "nexglotv", "ai", "lark", "openrouter"],
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
+  "env": {
+    "BUSINESS_NAME": {
+      "description": "Business brand name",
+      "value": "NexgloTV"
+    },
+    "BUSINESS_DESCRIPTION": {
+      "description": "One-line business description for prompt context",
+      "value": "Internet-based television and entertainment service in Sierra Leone"
+    },
+    "BUSINESS_TIMEZONE": {
+      "description": "IANA timezone for booking and timestamps",
+      "value": "Africa/Freetown"
+    },
+    "CURRENCY_LABEL": {
+      "description": "Currency abbreviation for quotes and receipts",
+      "value": "Le"
+    },
+    "WHATSAPP_TOKEN": {
+      "description": "Meta WhatsApp Cloud API Access Token (System User or temporary token)",
+      "required": false
+    },
+    "WHATSAPP_PHONE_NUMBER_ID": {
+      "description": "Meta WhatsApp Phone Number ID (from Meta Developer Console)",
+      "required": false
+    },
+    "WHATSAPP_APP_SECRET": {
+      "description": "Meta App Secret for HMAC-SHA256 webhook signature verification",
+      "required": false
+    },
+    "WHATSAPP_VERIFY_TOKEN": {
+      "description": "Random verification secret entered in Meta webhook settings",
+      "value": "choose-a-long-random-string",
+      "required": true
+    },
+    "GRAPH_API_VERSION": {
+      "description": "Meta Graph API version",
+      "value": "v21.0"
+    },
+    "WHATSAPP_DRY_RUN": {
+      "description": "1 for dry-run/testing without sending to WhatsApp; 0 for live production",
+      "value": "1"
+    },
+    "ADMIN_TOKEN": {
+      "description": "Secret token to protect /admin and staff endpoints",
+      "generator": "secret"
+    },
+    "DB_PATH": {
+      "description": "Path to SQLite database file",
+      "value": "runtime_data/nexglotv.sqlite"
+    },
+    "LLM_PROVIDER": {
+      "description": "LLM provider name: openrouter or nvidia",
+      "value": "openrouter"
+    },
+    "OPENROUTER_API_KEY": {
+      "description": "OpenRouter API Key for AI responses",
+      "required": false
+    },
+    "OPENROUTER_BASE_URL": {
+      "description": "OpenRouter API Base URL",
+      "value": "https://openrouter.ai/api/v1"
+    },
+    "OPENROUTER_MODEL": {
+      "description": "OpenRouter Model ID",
+      "value": "meta-llama/llama-3.3-70b-instruct"
+    },
+    "OPENROUTER_TIMEOUT_SECONDS": {
+      "description": "LLM request timeout in seconds",
+      "value": "25"
+    },
+    "OPENROUTER_MAX_OUTPUT_TOKENS": {
+      "description": "LLM maximum output tokens",
+      "value": "500"
+    },
+    "CRM_PROVIDER": {
+      "description": "CRM backend: lark_base, google_sheets, or mock",
+      "value": "lark_base"
+    },
+    "LARK_BASE_TOKEN": {
+      "description": "Lark Base App Token for NexgloTV CRM",
+      "value": "E8jObNOAeaZqUHsyxRHjR9VcpBg",
+      "required": false
+    },
+    "DISCOUNT_PERCENT": {
+      "description": "Customer discount percentage (approved 20%)",
+      "value": "20"
+    },
+    "DISCOUNT_ACTIVE": {
+      "description": "Whether promotional discount is active",
+      "value": "true"
+    }
+  }
+}
