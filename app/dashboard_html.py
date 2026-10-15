@@ -288,14 +288,30 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     let currentDryRun = false;
     let currentAutoMode = 'all';
 
+    function getSavedToken() {
+      try {
+        return localStorage.getItem("nexglo_admin_token") || "";
+      } catch (e) {
+        return "";
+      }
+    }
+
+    function setSavedToken(token) {
+      try {
+        localStorage.setItem("nexglo_admin_token", token);
+      } catch (e) {}
+    }
+
     function getAuthHeader() {
-      const token = localStorage.getItem("nexglo_admin_token") || document.getElementById("adminToken").value.trim();
+      const el = document.getElementById("adminToken");
+      const token = getSavedToken() || (el ? el.value.trim() : "");
       return { "Authorization": "Bearer " + token, "Content-Type": "application/json" };
     }
 
     function saveToken() {
-      const token = document.getElementById("adminToken").value.trim();
-      localStorage.setItem("nexglo_admin_token", token);
+      const el = document.getElementById("adminToken");
+      const token = el ? el.value.trim() : "";
+      setSavedToken(token);
       alert("Admin Token saved!");
       fetchHealth();
       fetchSettings();
@@ -303,9 +319,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       fetchModels();
     }
 
-    window.onload = function() {
-      const saved = localStorage.getItem("nexglo_admin_token");
-      if (saved) document.getElementById("adminToken").value = saved;
+    function initDashboard() {
+      const saved = getSavedToken();
+      const el = document.getElementById("adminToken");
+      if (saved && el) el.value = saved;
       fetchHealth();
       fetchSettings();
       refreshCurrentTab();
@@ -319,7 +336,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }
         fetchSettings();
       }, 4000);
-    };
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initDashboard);
+    } else {
+      initDashboard();
+    }
 
     function switchTab(tab) {
       currentTab = tab;
@@ -422,8 +445,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function toggleDryRun() {
       const targetDryRun = !currentDryRun;
       const confirmMsg = targetDryRun
-        ? "Activate Dry Run?\n\nThis will immediately MUTE and SILENCE all outgoing WhatsApp replies globally. Outgoing replies will only be logged locally."
-        : "Switch to LIVE Delivery?\n\nOutgoing messages from the bot and staff will be sent directly to real customer WhatsApp devices!";
+        ? "Activate Dry Run?\\n\\nThis will immediately MUTE and SILENCE all outgoing WhatsApp replies globally. Outgoing replies will only be logged locally."
+        : "Switch to LIVE Delivery?\\n\\nOutgoing messages from the bot and staff will be sent directly to real customer WhatsApp devices!";
       if (!confirm(confirmMsg)) return;
 
       const btn = document.getElementById("btnToggleDryRun");
@@ -458,8 +481,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function toggleAutoReplyMode() {
       const targetMode = currentAutoMode === "selective" ? "all" : "selective";
       const confirmMsg = targetMode === "all"
-        ? "Switch to Live Mode?\n\nThis will activate AI auto-replies for ALL conversations and future incoming messages!"
-        : "Switch to Selective Mode?\n\nThis will set the default state to Human (bot paused) for all conversations. You can then switch any number to Bot mode individually on this dashboard!";
+        ? "Switch to Live Mode?\\n\\nThis will activate AI auto-replies for ALL conversations and future incoming messages!"
+        : "Switch to Selective Mode?\\n\\nThis will set the default state to Human (bot paused) for all conversations. You can then switch any number to Bot mode individually on this dashboard!";
       if (!confirm(confirmMsg)) return;
 
       const btn = document.getElementById("btnToggleAutoMode");
