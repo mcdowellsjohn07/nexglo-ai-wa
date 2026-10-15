@@ -216,6 +216,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <button onclick="refreshActiveChat()" style="padding: 6px 12px; font-size: 12px; background: #374151;">Reload Chat</button>
         </div>
       </h2>
+      <div id="chatModeBanner" style="display: none; margin-bottom: 8px; font-size: 12px; padding: 8px 12px; border-radius: 6px;"></div>
       <div id="contactMeta" style="display: none; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; padding: 6px 10px; background: #141b2d; border-radius: 6px;"></div>
       <div id="chatBox" class="chat-box" style="height: 380px;">
         <p style="color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;">Click a conversation from the left to read messages and reply.</p>
@@ -310,6 +311,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const res = await fetch("/admin/settings", { headers: getAuthHeader() });
         if (!res.ok) return;
         const data = await res.json();
+        const prevAutoMode = currentAutoMode;
+        const prevDryRun = currentDryRun;
         currentDryRun = Boolean(data.dry_run);
         currentAutoMode = data.auto_reply_mode || 'all';
 
@@ -348,14 +351,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           autoModeBtn.style.color = "#ffffff";
           autoModeBtn.title = "Currently in Live Mode (bot auto-replies to all numbers). Click to switch to Selective mode where default is Human.";
         }
+
+        // If policy or dry run changed from background/another tab, update active chat and list
+        if (prevAutoMode && prevAutoMode !== currentAutoMode) {
+          refreshCurrentTab(true);
+          if (currentWaId) {
+            updateChatModeDisplay(currentAutoMode === "selective");
+            fetchConversation(currentWaId, true);
+          }
+        } else if (prevDryRun !== undefined && prevDryRun !== currentDryRun) {
+          if (currentWaId) {
+            fetchConversation(currentWaId, true);
+          }
+        }
       } catch (e) {}
     }
 
     async function toggleDryRun() {
       const targetDryRun = !currentDryRun;
       const confirmMsg = targetDryRun
-        ? "Activate Dry Run?\\n\\nThis will immediately MUTE and SILENCE all outgoing WhatsApp replies globally. Outgoing replies will only be logged locally."
-        : "Switch to LIVE Delivery?\\n\\nOutgoing messages from the bot and staff will be sent directly to real customer WhatsApp devices!";
+        ? "Activate Dry Run?\n\nThis will immediately MUTE and SILENCE all outgoing WhatsApp replies globally. Outgoing replies will only be logged locally."
+        : "Switch to LIVE Delivery?\n\nOutgoing messages from the bot and staff will be sent directly to real customer WhatsApp devices!";
       if (!confirm(confirmMsg)) return;
 
       const btn = document.getElementById("btnToggleDryRun");
@@ -371,6 +387,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (res.ok) {
           await fetchSettings();
           await fetchHealth();
+          if (currentWaId) {
+            fetchConversation(currentWaId, true);
+          }
         } else {
           const err = await res.json();
           alert("Could not update Dry Run: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
@@ -387,8 +406,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function toggleAutoReplyMode() {
       const targetMode = currentAutoMode === "selective" ? "all" : "selective";
       const confirmMsg = targetMode === "all"
-        ? "Switch to Live Mode?\\n\\nThis will activate AI auto-replies for ALL conversations and future incoming messages!"
-        : "Switch to Selective Mode?\\n\\nThis will set the default state to Human (bot paused) for all conversations. You can then switch any number to Bot mode individually on this dashboard!";
+        ? "Switch to Live Mode?\n\nThis will activate AI auto-replies for ALL conversations and future incoming messages!"
+        : "Switch to Selective Mode?\n\nThis will set the default state to Human (bot paused) for all conversations. You can then switch any number to Bot mode individually on this dashboard!";
       if (!confirm(confirmMsg)) return;
 
       const btn = document.getElementById("btnToggleAutoMode");
@@ -402,10 +421,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           body: JSON.stringify({ mode: targetMode })
         });
         if (res.ok) {
+          currentAutoMode = targetMode;
+          // Instantly reflect mode in active chat window if open
+          if (currentWaId) {
+            updateChatModeDisplay(targetMode === "selective");
+          }
           await fetchSettings();
           refreshCurrentTab();
           if (currentWaId) {
-            fetchConversation(currentWaId, false);
+            fetchConversation(currentWaId, true);
           }
         } else {
           const err = await res.json();
@@ -481,15 +505,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           list.innerHTML = '<p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No conversations yet. When someone messages your WhatsApp, it will appear here!</p>';
           return;
         }
+        const prevScroll = list ? list.scrollTop : 0;
         let html = "";
         convs.forEach(c => {
           const isActive = c.wa_id === currentWaId ? " active" : "";
           const name = c.profile_name || c.wa_id;
           const preview = c.last_message ? (c.last_message.length > 55 ? c.last_message.substring(0, 52) + "..." : c.last_message) : (c.state || "active");
-          const modeBadge = c.handoff 
+          const isHandoff = Boolean(c.handoff);
+          const modeBadge = isHandoff 
             ? ' <span class="badge badge-yellow" style="font-size: 10px;">👤 Human</span>' 
             : ' <span class="badge badge-green" style="font-size: 10px;">🤖 Bot</span>';
-          html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${Boolean(c.handoff)})">
+          html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${isHandoff})">
             <div style="display: flex; justify-content: space-between; align-items: baseline;">
               <strong>${name}${modeBadge}</strong>
               <small style="font-size: 10px; color: var(--text-muted);">${c.updated_at ? c.updated_at.split('T')[0] : ''}</small>
@@ -498,6 +524,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           </div>`;
         });
         list.innerHTML = html;
+        if (list) list.scrollTop = prevScroll;
       } catch (e) {}
     }
 
@@ -513,6 +540,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           list.innerHTML = '<p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No open customer handoffs.</p>';
           return;
         }
+        const prevScroll = list ? list.scrollTop : 0;
         let html = "";
         data.handoffs.forEach(h => {
           const isActive = h.wa_id === currentWaId ? " active" : "";
@@ -525,45 +553,131 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           </div>`;
         });
         list.innerHTML = html;
+        if (list) list.scrollTop = prevScroll;
       } catch (e) {}
     }
+
+    let latestChatRequestId = 0;
 
     function selectContact(waId, name, isHandoff = false) {
       currentWaId = waId;
       currentContactHandoff = Boolean(isHandoff);
       document.getElementById("activeContact").textContent = (name || waId) + " (" + waId + ")";
-      updateContactModeButton(currentContactHandoff);
+      updateChatModeDisplay(currentContactHandoff);
       fetchConversation(waId, false);
       refreshCurrentTab(true);
     }
 
-    function updateContactModeButton(isHandoff) {
+    function updateChatModeDisplay(isHandoff) {
+      currentContactHandoff = Boolean(isHandoff);
       const btn = document.getElementById("contactModeSwitchBtn");
+      const banner = document.getElementById("chatModeBanner");
+      const input = document.getElementById("replyText");
+
       if (!currentWaId) {
-        btn.style.display = "none";
+        if (btn) btn.style.display = "none";
+        if (banner) banner.style.display = "none";
         return;
       }
-      btn.style.display = "inline-block";
-      if (isHandoff) {
-        btn.innerHTML = "👤 Human Staff (Bot Paused) &bull; <strong>Click to Switch to 🤖 Bot</strong>";
-        btn.style.background = "var(--success)";
-        btn.style.color = "#ffffff";
-        btn.title = "Bot is currently silenced for this customer. Click to activate the AI Bot for this number.";
-      } else {
-        btn.innerHTML = "🤖 AI Bot Active &bull; <strong>Click to Switch to 👤 Human</strong>";
-        btn.style.background = "var(--warning)";
-        btn.style.color = "#000000";
-        btn.title = "AI Bot is actively answering this customer. Click to take over and pause the bot.";
+
+      if (btn) {
+        btn.style.display = "inline-block";
+        btn.disabled = false;
+        if (currentContactHandoff) {
+          btn.innerHTML = "👤 Human Staff (Bot Paused) &bull; <strong>Click to Switch to 🤖 Bot</strong>";
+          btn.style.background = "#059669";
+          btn.style.color = "#ffffff";
+          btn.style.border = "1px solid #10b981";
+          btn.title = "Currently in Human Staff mode (Bot paused). Click to activate AI Bot replies for this contact.";
+        } else {
+          btn.innerHTML = "🤖 AI Bot Active &bull; <strong>Click to Switch to 👤 Human</strong>";
+          btn.style.background = "#d97706";
+          btn.style.color = "#ffffff";
+          btn.style.border = "1px solid #f59e0b";
+          btn.title = "Currently in AI Bot mode. Click to take over as Human staff and pause the bot.";
+        }
       }
+
+      if (banner) {
+        banner.style.display = "block";
+        if (currentContactHandoff) {
+          banner.style.background = "rgba(245, 158, 11, 0.12)";
+          banner.style.border = "1px solid rgba(245, 158, 11, 0.35)";
+          banner.style.color = "#fef3c7";
+          banner.innerHTML = "👤 <strong>Human Staff Mode:</strong> AI auto-replies are paused for this customer. Type a message below to respond directly, or click the button above to switch to 🤖 Bot.";
+        } else {
+          banner.style.background = "rgba(16, 185, 129, 0.12)";
+          banner.style.border = "1px solid rgba(16, 185, 129, 0.35)";
+          banner.style.color = "#d1fae5";
+          banner.innerHTML = "🤖 <strong>AI Bot Active:</strong> NexgloTV AI is actively responding to customer messages. Click the button above to switch to 👤 Human.";
+        }
+      }
+
+      if (input) {
+        if (currentContactHandoff) {
+          input.placeholder = "Type a response to send directly to customer on WhatsApp...";
+        } else {
+          input.placeholder = "Staff message (sending will also take over and switch to Human mode)...";
+        }
+      }
+
+      updateMetaBadge(currentContactHandoff);
+    }
+
+    function updateContactModeButton(isHandoff) {
+      updateChatModeDisplay(isHandoff);
+    }
+
+    function updateMetaBadge(isHandoff) {
+      const badgeEl = document.getElementById("contactStatusBadge");
+      if (badgeEl) {
+        if (isHandoff) {
+          badgeEl.className = "badge badge-yellow";
+          badgeEl.innerHTML = "👤 HUMAN AGENT (Bot Paused)";
+        } else {
+          badgeEl.className = "badge badge-green";
+          badgeEl.innerHTML = "🤖 AI BOT ACTIVE";
+        }
+      }
+    }
+
+    function renderContactMeta(data) {
+      const metaDiv = document.getElementById("contactMeta");
+      if (!metaDiv) return;
+      const isHandoff = Boolean(data.handoff);
+      const statusBadge = isHandoff 
+        ? '<span id="contactStatusBadge" class="badge badge-yellow" style="margin-left: 6px;">👤 HUMAN AGENT (Bot Paused)</span>' 
+        : '<span id="contactStatusBadge" class="badge badge-green" style="margin-left: 6px;">🤖 AI BOT ACTIVE</span>';
+      
+      let metaHtml = `<strong>Status:</strong> ${escapeHtml(data.state || 'active')} ${statusBadge} | <strong>Lang:</strong> ${(data.lang || 'en').toUpperCase()}`;
+      
+      if (currentDryRun) {
+        metaHtml += ` | <span class="badge badge-yellow" style="font-size: 10px;">🛡️ DRY RUN (Replies Muted)</span>`;
+      }
+      if (currentAutoMode === "selective") {
+        metaHtml += ` | <span style="color: #93c5fd; font-size: 11px;">Policy: Selective</span>`;
+      } else {
+        metaHtml += ` | <span style="color: #86efac; font-size: 11px;">Policy: Live</span>`;
+      }
+      if (data.draft && data.draft.quote) {
+        metaHtml += ` | <strong>Draft Quote:</strong> Le ${Number(data.draft.quote).toLocaleString()}`;
+      }
+      if (data.lead && data.lead.stage) {
+        metaHtml += ` | <strong>Lead Stage:</strong> ${escapeHtml(data.lead.stage)}`;
+      }
+      metaDiv.innerHTML = metaHtml;
+      metaDiv.style.display = "block";
     }
 
     async function toggleContactMode() {
       if (!currentWaId) return;
       const targetMode = currentContactHandoff ? "bot" : "human";
       const btn = document.getElementById("contactModeSwitchBtn");
-      const oldHtml = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = "Switching...";
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = "⏳ Switching mode...";
+      }
+
       try {
         const res = await fetch("/admin/conversations/" + currentWaId + "/mode", {
           method: "POST",
@@ -571,20 +685,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           body: JSON.stringify({ mode: targetMode })
         });
         if (res.ok) {
-          currentContactHandoff = (targetMode === "human");
-          updateContactModeButton(currentContactHandoff);
+          const newHandoff = (targetMode === "human");
+          updateChatModeDisplay(newHandoff);
           await fetchConversation(currentWaId, true);
           refreshCurrentTab(true);
         } else {
           const err = await res.json();
           alert("Could not switch mode: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
-          btn.innerHTML = oldHtml;
+          updateChatModeDisplay(currentContactHandoff);
         }
       } catch (e) {
         alert("Error switching mode: " + e);
-        btn.innerHTML = oldHtml;
+        updateChatModeDisplay(currentContactHandoff);
       } finally {
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
       }
     }
 
@@ -595,42 +709,33 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     async function fetchConversation(waId, silent = false) {
-      if (isFetchingChat) return;
-      isFetchingChat = true;
+      if (!waId) return;
+      const thisRequestId = ++latestChatRequestId;
       const chatBox = document.getElementById("chatBox");
-      if (!silent) {
+      if (!silent && chatBox) {
         chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;'>Loading conversation transcript...</p>";
       }
       try {
         const res = await fetch("/admin/conversations/" + waId, { headers: getAuthHeader() });
-        if (!res.ok) { isFetchingChat = false; return; }
+        if (thisRequestId !== latestChatRequestId || waId !== currentWaId) {
+          return;
+        }
+        if (!res.ok) return;
         const data = await res.json();
-        const msgs = data.messages || data.transcript || [];
-        currentContactHandoff = Boolean(data.handoff);
-        updateContactModeButton(currentContactHandoff);
-
-        // Meta info strip
-        const metaDiv = document.getElementById("contactMeta");
-        const statusBadge = currentContactHandoff 
-          ? '<span class="badge badge-yellow" style="margin-left: 6px;">👤 HUMAN AGENT (Bot Paused)</span>' 
-          : '<span class="badge badge-green" style="margin-left: 6px;">🤖 AI BOT ACTIVE</span>';
-        let metaHtml = `<strong>Status:</strong> ${data.state || 'active'} ${statusBadge} | <strong>Lang:</strong> ${(data.lang || 'en').toUpperCase()}`;
-        if (data.draft && data.draft.quote) {
-          metaHtml += ` | <strong>Draft Quote:</strong> Le ${data.draft.quote.toLocaleString()}`;
-        }
-        if (data.lead && data.lead.stage) {
-          metaHtml += ` | <strong>Lead Stage:</strong> ${data.lead.stage}`;
-        }
-        metaDiv.innerHTML = metaHtml;
-        metaDiv.style.display = "block";
-
-        if (msgs.length === 0) {
-          chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;'>No messages recorded for this contact yet.</p>";
-          isFetchingChat = false;
+        if (thisRequestId !== latestChatRequestId || waId !== currentWaId) {
           return;
         }
 
-        // Render messages
+        currentContactHandoff = Boolean(data.handoff);
+        updateChatModeDisplay(currentContactHandoff);
+        renderContactMeta(data);
+
+        const msgs = data.messages || data.transcript || [];
+        if (msgs.length === 0) {
+          chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;'>No messages recorded for this contact yet.</p>";
+          return;
+        }
+
         let html = "";
         msgs.forEach(m => {
           const author = m.author || "bot";
@@ -641,15 +746,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           </div>`;
         });
 
-        // Check if user was already at bottom to keep scrolled
         const isAtBottom = (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) < 60;
         chatBox.innerHTML = html;
         if (!silent || isAtBottom) {
           chatBox.scrollTop = chatBox.scrollHeight;
         }
       } catch (e) {
-      } finally {
-        isFetchingChat = false;
+        console.error("fetchConversation error:", e);
       }
     }
 
@@ -672,6 +775,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         });
         if (res.ok) {
           input.value = "";
+          updateChatModeDisplay(true);
           fetchConversation(currentWaId, false);
           refreshCurrentTab(true);
         } else {
