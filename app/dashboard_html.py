@@ -879,7 +879,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           const err = await res.json();
           let msg = err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error";
           if (err.detail && err.detail.code === "template_required") {
-            msg = "⚠️ WhatsApp 24-Hour Policy Constraint:\n\n" + msg + "\n\n💡 Tip: Once the customer sends a message on WhatsApp to your number, the 24-hour window will open and you will be able to reply freely!";
+            msg = "⚠️ WhatsApp 24-Hour Policy Constraint:\\n\\n" + msg + "\\n\\n💡 Tip: Once the customer sends a message on WhatsApp to your number, the 24-hour window will open and you will be able to reply freely!";
           }
           alert(msg);
         }
