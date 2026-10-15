@@ -46,7 +46,7 @@ from app.state import Store  # noqa: E402
 from app.wa_client import CallbackTransport, WhatsAppClient  # noqa: E402
 from app.wa_payloads import render  # noqa: E402
 
-TEST_SETTINGS = Settings(business_name="Barbería Studio Norte", timezone="America/Panama")
+TEST_SETTINGS = Settings(business_name="Barbería Studio Norte", timezone="America/Panama", auto_reply_mode="all")
 
 
 class FakeWhatsApp(WhatsAppClient):

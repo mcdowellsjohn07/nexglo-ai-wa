@@ -270,7 +270,10 @@ class Agent:
 
         # Human handoff active
         if conv.handoff:
-            if text and not payload_id and is_reset(text):
+            auto_mode = self.store.get_setting("auto_reply_mode", getattr(self.store, "default_auto_reply_mode", "selective"))
+            # In selective mode, only staff dashboard can switch to bot mode.
+            # In all/live mode, customer can type reset/menu to resume bot.
+            if auto_mode != "selective" and text and not payload_id and is_reset(text):
                 self.store.set_handoff(wa_id, False)
                 self.store.resolve_handoffs(wa_id, by="customer")
                 conv.handoff = False

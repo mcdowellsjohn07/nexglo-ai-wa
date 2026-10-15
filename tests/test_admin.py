@@ -24,7 +24,7 @@ def wa():
 
 @pytest.fixture
 def services(tmp_path, clock, wa):
-    settings = Settings(admin_token=TOKEN)
+    settings = Settings(admin_token=TOKEN, auto_reply_mode="all")
     return build_services(settings, db_path=tmp_path / "admin.sqlite", clock=clock, llm=OfflineLLM(), wa=wa)
 
 
@@ -322,6 +322,12 @@ def test_selective_mode_new_customer_and_dry_run(client, services, wa):
     # Bot stays silent (no outbound messages sent to customer)
     assert len(wa.outbound()) == 0
 
+    # In selective mode, customer typing "menu" does NOT unpause the bot
+    say(services, "menu", wa_id=new_user, name="Fatmata")
+    assert len(wa.outbound()) == 0
+    conv = services.store.get_conversation(new_user)
+    assert conv.handoff is True
+
     # Staff toggles contact to Bot mode
     client.post(f"/admin/conversations/{new_user}/mode", json={"mode": "bot"}, headers=AUTH)
     conv = services.store.get_conversation(new_user)
@@ -330,6 +336,16 @@ def test_selective_mode_new_customer_and_dry_run(client, services, wa):
     # Now when user messages, bot replies
     say(services, "Hi again", wa_id=new_user, name="Fatmata")
     assert len(wa.outbound()) > 0
+
+    # Switching policy to "all" (Live mode) activates AI replies for all conversations
+    client.post("/admin/settings/auto-reply-mode", json={"mode": "all"}, headers=AUTH)
+    conv = services.store.get_conversation(new_user)
+    assert conv.handoff is False
+
+    # Switching policy back to "selective" sets default to Human mode for all conversations
+    client.post("/admin/settings/auto-reply-mode", json={"mode": "selective"}, headers=AUTH)
+    conv = services.store.get_conversation(new_user)
+    assert conv.handoff is True
 
 
 

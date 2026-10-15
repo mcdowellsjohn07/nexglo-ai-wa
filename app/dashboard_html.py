@@ -336,15 +336,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const autoModeEl = document.getElementById("valAutoMode");
         const autoModeBtn = document.getElementById("btnToggleAutoMode");
         if (currentAutoMode === "selective") {
-          autoModeEl.innerHTML = '<span class="badge badge-blue">Selective (Whitelist Only)</span>';
-          autoModeBtn.textContent = "Policy: Selective (Click to Auto-Reply All)";
+          autoModeEl.innerHTML = '<span class="badge badge-yellow">Selective (Default: Human)</span>';
+          autoModeBtn.textContent = "🚀 Switch to Live Mode (Activate All AI Replies)";
           autoModeBtn.style.background = "#2563eb";
-          autoModeBtn.title = "Only numbers switched to Bot will receive automated replies. New contacts start as Human.";
+          autoModeBtn.style.color = "#ffffff";
+          autoModeBtn.title = "Currently in Selective mode (default: Human / bot paused). Click to activate AI replies for all numbers.";
         } else {
-          autoModeEl.innerHTML = '<span class="badge" style="background: rgba(156, 163, 175, 0.2); color: #9ca3af;">All Numbers (Default)</span>';
-          autoModeBtn.textContent = "Policy: All Numbers (Click for Selective)";
-          autoModeBtn.style.background = "#374151";
-          autoModeBtn.title = "All new conversations receive bot replies automatically.";
+          autoModeEl.innerHTML = '<span class="badge badge-green">Live Mode (AI Replies to All)</span>';
+          autoModeBtn.textContent = "🎯 Switch to Selective Mode (Default: Human)";
+          autoModeBtn.style.background = "#4b5563";
+          autoModeBtn.style.color = "#ffffff";
+          autoModeBtn.title = "Currently in Live Mode (bot auto-replies to all numbers). Click to switch to Selective mode where default is Human.";
         }
       } catch (e) {}
     }
@@ -384,9 +386,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     async function toggleAutoReplyMode() {
       const targetMode = currentAutoMode === "selective" ? "all" : "selective";
-      const confirmMsg = targetMode === "selective"
-        ? "Switch to Selective Mode?\\n\\nIn selective mode, new incoming customer chats start in Human mode (bot paused). The bot will ONLY reply to numbers that you explicitly switch to 🤖 Bot on this dashboard!"
-        : "Switch to All Numbers Mode?\\n\\nNew incoming chats will automatically receive bot replies (when Dry Run is off).";
+      const confirmMsg = targetMode === "all"
+        ? "Switch to Live Mode?\\n\\nThis will activate AI auto-replies for ALL conversations and future incoming messages!"
+        : "Switch to Selective Mode?\\n\\nThis will set the default state to Human (bot paused) for all conversations. You can then switch any number to Bot mode individually on this dashboard!";
       if (!confirm(confirmMsg)) return;
 
       const btn = document.getElementById("btnToggleAutoMode");
@@ -401,6 +403,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         });
         if (res.ok) {
           await fetchSettings();
+          refreshCurrentTab();
+          if (currentWaId) {
+            fetchConversation(currentWaId, false);
+          }
         } else {
           const err = await res.json();
           alert("Could not update Auto-Reply Mode: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));

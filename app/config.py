@@ -71,6 +71,7 @@ class Settings:
     graph_api_version: str = "v21.0"
     # None = automatic (dry-run whenever WhatsApp is not configured).
     dry_run_flag: Optional[bool] = None
+    auto_reply_mode: str = "all"
 
     # --- LLM (OpenRouter or NVIDIA NIM, OpenAI-compatible) ---
     llm_provider: str = "openrouter"
@@ -149,6 +150,7 @@ class Settings:
             app_secret=get("WHATSAPP_APP_SECRET"),
             graph_api_version=get("GRAPH_API_VERSION", "v21.0"),
             dry_run_flag=_parse_bool(env.get("WHATSAPP_DRY_RUN")),
+            auto_reply_mode=get("AUTO_REPLY_MODE", "all"),
             llm_provider=resolved_provider,
             openrouter_api_key=openrouter_key,
             openrouter_base_url=get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),

@@ -117,9 +117,10 @@ class ContactModeIn(BaseModel):
 
 @router.get("/settings")
 def get_settings(desk: StaffDesk = Depends(staff_desk)) -> dict:
+    default_mode = getattr(desk.store, "default_auto_reply_mode", "all")
     return {
         "dry_run": desk.services.wa.dry_run,
-        "auto_reply_mode": desk.store.get_setting("auto_reply_mode", "all"),
+        "auto_reply_mode": desk.store.get_setting("auto_reply_mode", default_mode),
         "whatsapp_configured": desk.settings.whatsapp_configured,
     }
 
@@ -136,6 +137,10 @@ def set_dry_run(body: DryRunIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
 @router.post("/settings/auto-reply-mode")
 def set_auto_reply_mode(body: AutoReplyModeIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
     desk.store.set_setting("auto_reply_mode", body.mode)
+    if body.mode == "all":
+        desk.store.set_all_conversations_mode("bot")
+    elif body.mode == "selective":
+        desk.store.set_all_conversations_mode("human")
     return {"status": "success", "auto_reply_mode": body.mode}
 
 

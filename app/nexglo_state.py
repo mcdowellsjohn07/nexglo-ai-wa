@@ -233,6 +233,16 @@ class Conversation:
 class Store(Database):
     """SQLite-backed conversation store for NexgloTV."""
 
+    def __init__(
+        self,
+        db_path: Path,
+        schema_path: Path,
+        clock: Optional[Clock] = None,
+        default_auto_reply_mode: str = "all",
+    ):
+        super().__init__(db_path, schema_path, clock=clock)
+        self.default_auto_reply_mode = default_auto_reply_mode
+
     # ---------------------------------------------------------- conversations
     def get_setting(self, key: str, default: str = "") -> str:
         with self._connect() as con:
@@ -245,8 +255,31 @@ class Store(Database):
             con.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)")
             con.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", (key, value))
 
+    def set_all_conversations_mode(self, mode: str) -> int:
+        """Bulk update all conversations to 'bot' (handoff=0, state=idle) or 'human' (handoff=1, state=human)."""
+        with self._connect() as con:
+            if mode == "bot":
+                cur = con.execute(
+                    "UPDATE conversations SET handoff = 0, "
+                    "state = CASE WHEN state = 'human' THEN 'idle' ELSE state END, "
+                    "updated_at = ?",
+                    (self._ts(),),
+                )
+                con.execute(
+                    "UPDATE handoffs SET resolved_at = ?, resolved_by = 'staff_live_mode' WHERE resolved_at IS NULL",
+                    (self._ts(),),
+                )
+                return cur.rowcount
+            elif mode == "human":
+                cur = con.execute(
+                    "UPDATE conversations SET handoff = 1, state = 'human', draft = '{}', updated_at = ?",
+                    (self._ts(),),
+                )
+                return cur.rowcount
+            return 0
+
     def ensure_conversation(self, wa_id: str, profile_name: Optional[str] = None) -> None:
-        auto_mode = self.get_setting("auto_reply_mode", "all")
+        auto_mode = self.get_setting("auto_reply_mode", getattr(self, "default_auto_reply_mode", "all"))
         # In 'selective' mode, new incoming contacts start in Human mode (bot paused)
         initial_handoff = 1 if auto_mode == "selective" else 0
         initial_state = State.HUMAN if initial_handoff else State.IDLE
