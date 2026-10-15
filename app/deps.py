@@ -59,6 +59,7 @@ def build_services(
 ) -> Services:
     """Wire up the app. Every collaborator can be swapped for a fake."""
     settings = settings or get_settings()
+    clock = clock if clock is not None else system_clock
     default_mode = getattr(settings, "auto_reply_mode", "selective")
     store = Store(db_path or settings.db_path, settings.schema_path, clock=clock, default_auto_reply_mode=default_mode)
     kb = KnowledgeBase(settings.kb_dir)

@@ -20,7 +20,7 @@ from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .clock import from_db
+from .clock import from_db, system_clock
 from .crm_sheets import TrialRecord
 from .nexglo_catalog import t
 from .nexglo_state import State
@@ -51,7 +51,7 @@ class StaffDesk:
         self.store = services.store
         self.wa = services.wa
         self.settings = services.settings
-        self.clock = services.clock
+        self.clock = getattr(services, "clock", None) or system_clock
         self.crm = services.crm
 
     # ------------------------------------------------------------ helpers
@@ -65,7 +65,8 @@ class StaffDesk:
         if not conv.last_user_at:
             return {"open": False, "last_user_at": None, "hours_since": None, "closes_at": None}
         last = from_db(conv.last_user_at)
-        since = self.clock() - last
+        clock_fn = self.clock or system_clock
+        since = clock_fn() - last
         return {
             "open": since < WINDOW,
             "last_user_at": conv.last_user_at,
