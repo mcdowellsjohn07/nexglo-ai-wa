@@ -20,6 +20,7 @@ import hmac
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from .deps import Services
@@ -27,6 +28,16 @@ from .staff import StaffDesk, StaffError
 from .webhook import get_services
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+@router.get("", response_class=HTMLResponse)
+def admin_dashboard() -> HTMLResponse:
+    """Sleek web-based Staff & Admin Console for NexgloTV."""
+    from .dashboard_html import DASHBOARD_HTML
+
+    return HTMLResponse(content=DASHBOARD_HTML)
+
 
 
 def staff_desk(

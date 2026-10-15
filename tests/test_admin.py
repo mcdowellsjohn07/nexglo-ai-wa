@@ -219,3 +219,17 @@ def test_models_listing_and_selection(client):
     after = client.get("/admin/models", headers=AUTH).json()
     assert after["current_model"] == "google/gemini-2.0-flash-001"
 
+
+def test_admin_dashboard_html(client):
+    res = client.get("/admin/dashboard")
+    assert res.status_code == 200
+    assert "text/html" in res.headers.get("content-type", "")
+    assert "NexgloTV" in res.text
+    assert "AI Agent — Staff Console" in res.text
+
+    # Also check alias /admin
+    res_root = client.get("/admin")
+    assert res_root.status_code == 200
+    assert "text/html" in res_root.headers.get("content-type", "")
+
+
