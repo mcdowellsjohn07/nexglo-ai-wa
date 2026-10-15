@@ -208,7 +208,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <h2>
         <span>Chat: <span id="activeContact" style="color: var(--primary);">Select a conversation</span></span>
         <div>
-          <button id="resolveBtn" onclick="resolveChat()" class="btn-success" style="display: none; padding: 4px 10px; font-size: 12px; margin-right: 8px;">Resolve Handoff</button>
+          <button id="takeoverBtn" onclick="takeoverChat()" style="display: none; padding: 4px 10px; font-size: 12px; margin-right: 8px; background: var(--warning); color: #000; font-weight: 600;">Take Over (Pause Bot)</button>
+          <button id="resolveBtn" onclick="resolveChat()" class="btn-success" style="display: none; padding: 4px 10px; font-size: 12px; margin-right: 8px;">Resume Bot (Resolve)</button>
           <button onclick="refreshActiveChat()" style="padding: 4px 10px; font-size: 12px; background: #374151;">Reload Chat</button>
         </div>
       </h2>
@@ -403,10 +404,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     function selectContact(waId, name, isHandoff = false) {
       currentWaId = waId;
       document.getElementById("activeContact").textContent = (name || waId) + " (" + waId + ")";
-      const resolveBtn = document.getElementById("resolveBtn");
-      resolveBtn.style.display = isHandoff ? "inline-block" : "none";
+      updateHandoffButtons(isHandoff);
       fetchConversation(waId, false);
       refreshCurrentTab(true);
+    }
+
+    function updateHandoffButtons(isHandoff) {
+      const takeoverBtn = document.getElementById("takeoverBtn");
+      const resolveBtn = document.getElementById("resolveBtn");
+      if (isHandoff) {
+        takeoverBtn.style.display = "none";
+        resolveBtn.style.display = "inline-block";
+      } else {
+        takeoverBtn.style.display = "inline-block";
+        resolveBtn.style.display = "none";
+      }
     }
 
     function refreshActiveChat() {
@@ -427,10 +439,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (!res.ok) { isFetchingChat = false; return; }
         const data = await res.json();
         const msgs = data.messages || data.transcript || [];
+        updateHandoffButtons(Boolean(data.handoff));
 
         // Meta info strip
         const metaDiv = document.getElementById("contactMeta");
-        let metaHtml = `<strong>Status:</strong> ${data.state || 'active'} | <strong>Lang:</strong> ${(data.lang || 'en').toUpperCase()}`;
+        const statusBadge = data.handoff 
+          ? '<span class="badge badge-yellow" style="margin-left: 6px;">HUMAN AGENT (Bot Paused)</span>' 
+          : '<span class="badge badge-green" style="margin-left: 6px;">AI BOT ACTIVE</span>';
+        let metaHtml = `<strong>Status:</strong> ${data.state || 'active'} ${statusBadge} | <strong>Lang:</strong> ${(data.lang || 'en').toUpperCase()}`;
         if (data.draft && data.draft.quote) {
           metaHtml += ` | <strong>Draft Quote:</strong> Le ${data.draft.quote.toLocaleString()}`;
         }
@@ -439,10 +455,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }
         metaDiv.innerHTML = metaHtml;
         metaDiv.style.display = "block";
-
-        if (data.handoff) {
-          document.getElementById("resolveBtn").style.display = "inline-block";
-        }
 
         if (msgs.length === 0) {
           chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;'>No messages recorded for this contact yet.</p>";
@@ -502,6 +514,26 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
+    async function takeoverChat() {
+      if (!currentWaId) return;
+      try {
+        const res = await fetch("/admin/handoffs/" + currentWaId + "/takeover", {
+          method: "POST",
+          headers: getAuthHeader()
+        });
+        if (res.ok) {
+          alert("Conversation taken over! The AI bot is now paused for this customer. You can chat with them directly.");
+          refreshCurrentTab();
+          fetchConversation(currentWaId, false);
+        } else {
+          const err = await res.json();
+          alert("Could not take over conversation: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
+        }
+      } catch (e) {
+        alert("Error taking over: " + e);
+      }
+    }
+
     async function resolveChat() {
       if (!currentWaId) return;
       try {
@@ -511,7 +543,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           body: JSON.stringify({ notify: true })
         });
         alert("Conversation resolved! Handed back to the AI bot.");
-        document.getElementById("resolveBtn").style.display = "none";
         refreshCurrentTab();
         fetchConversation(currentWaId, false);
       } catch (e) {

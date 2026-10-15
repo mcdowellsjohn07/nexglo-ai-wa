@@ -189,6 +189,15 @@ class StaffDesk:
         self._send(wa_id, text, author="staff")
         return {"wa_id": wa_id, "sent": True, "window": self.window(self.store.get_conversation(wa_id))}
 
+    def takeover(self, wa_id: str) -> dict:
+        """Staff manually takes over the conversation, pausing the bot."""
+        conv = self._conversation(wa_id)
+        self.store.set_handoff(wa_id, True)
+        self.store.set_state(wa_id, State.HUMAN)
+        self.store.clear_draft(wa_id)
+        self.store.create_handoff(wa_id, "staff_takeover")
+        return {"wa_id": wa_id, "handoff": True, "state": "human", "bot_paused": True}
+
     def resolve(self, wa_id: str, notify: bool = True) -> dict:
         conv = self._conversation(wa_id)
         closed = self.store.resolve_handoffs(wa_id, by="staff")
@@ -203,8 +212,11 @@ class StaffDesk:
         if notify:
             ok, why = self._can_message(conv)
             if ok:
-                self._send(wa_id, t("handoff_resolved", conv.lang, business=self.settings.business_name), author="bot")
-                notified = True
+                try:
+                    self._send(wa_id, t("handoff_resolved", conv.lang, business=self.settings.business_name), author="bot")
+                    notified = True
+                except Exception as exc:
+                    note = f"Resolved, but notification could not be delivered to WhatsApp: {exc}"
             else:
                 note = why
         return {"wa_id": wa_id, "resolved": closed, "bot_active": True, "notified": notified, "note": note}

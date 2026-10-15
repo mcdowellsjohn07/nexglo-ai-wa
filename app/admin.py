@@ -130,6 +130,11 @@ def resolve(wa_id: str, body: Optional[NotifyIn] = None, desk: StaffDesk = Depen
     return _run(desk.resolve, wa_id, notify=(body or NotifyIn()).notify)
 
 
+@router.post("/handoffs/{wa_id}/takeover")
+def takeover(wa_id: str, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    return _run(desk.takeover, wa_id)
+
+
 @router.post("/payments/verify")
 def verify_payment(body: VerifyPaymentIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
     return _run(desk.verify_payment, body.wa_id, body.payment_id, body.verified_by)

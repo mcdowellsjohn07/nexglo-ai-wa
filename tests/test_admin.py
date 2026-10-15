@@ -249,4 +249,23 @@ def test_list_conversations_and_transcript_alias(client, services):
     assert len(conv_data["messages"]) >= 1
 
 
+def test_takeover_and_resolve(client, services):
+    say(services, "I need some help", wa_id="23276000002", name="Mariama")
+    # Manually take over the chat
+    res = client.post("/admin/handoffs/23276000002/takeover", headers=AUTH)
+    assert res.status_code == 200
+    assert res.json()["handoff"] is True
+    assert res.json()["bot_paused"] is True
+
+    # Check that it appears in /admin/handoffs queue
+    queue_res = client.get("/admin/handoffs", headers=AUTH).json()
+    assert any(h["wa_id"] == "23276000002" for h in queue_res["handoffs"])
+
+    # Resolve it
+    resolve_res = client.post("/admin/handoffs/23276000002/resolve", json={"notify": False}, headers=AUTH)
+    assert resolve_res.status_code == 200
+    assert resolve_res.json()["bot_active"] is True
+
+
+
 
