@@ -753,6 +753,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (data.lead && data.lead.stage) {
         metaHtml += ` | <strong>Lead Stage:</strong> ${escapeHtml(data.lead.stage)}`;
       }
+      if (data.window) {
+        if (data.window.open) {
+          const closes = data.window.closes_at ? ` (Closes: ${data.window.closes_at})` : "";
+          metaHtml += ` | <span class="badge badge-green" style="font-size: 10px;" title="WhatsApp service window active${closes}">🟢 24h Window Active</span>`;
+        } else {
+          const ago = data.window.hours_since !== null ? `${data.window.hours_since}h ago` : "never";
+          metaHtml += ` | <span class="badge badge-yellow" style="font-size: 10px;" title="Customer must message first to open 24h window">⏳ 24h Window Closed (${ago})</span>`;
+        }
+      }
       metaDiv.innerHTML = metaHtml;
       metaDiv.style.display = "block";
     }
@@ -868,7 +877,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           refreshCurrentTab(true);
         } else {
           const err = await res.json();
-          alert("Could not send reply: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
+          let msg = err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error";
+          if (err.detail && err.detail.code === "template_required") {
+            msg = "⚠️ WhatsApp 24-Hour Policy Constraint:\n\n" + msg + "\n\n💡 Tip: Once the customer sends a message on WhatsApp to your number, the 24-hour window will open and you will be able to reply freely!";
+          }
+          alert(msg);
         }
       } catch (e) {
         alert("Failed to send: " + e);
