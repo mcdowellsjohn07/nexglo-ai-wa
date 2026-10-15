@@ -109,6 +109,24 @@ def build_services(
     # Update media with wa client
     media.wa = wa
 
+    # Restore persistent settings from store (survives deploys & dyno restarts)
+    if hasattr(store, "get_setting"):
+        saved_model = store.get_setting("active_model", "")
+        if saved_model and hasattr(llm, "set_model"):
+            try:
+                llm.set_model(saved_model)
+                log.info("Restored persisted active model: %s", saved_model)
+            except Exception as exc:
+                log.warning("Could not restore active model %s: %s", saved_model, exc)
+
+        saved_dry = store.get_setting("dry_run", "")
+        if saved_dry in ("0", "1", "true", "false") and hasattr(wa, "set_dry_run"):
+            try:
+                wa.set_dry_run(saved_dry in ("1", "true"))
+                log.info("Restored persisted dry_run setting: %s", wa.dry_run)
+            except Exception as exc:
+                log.warning("Could not restore dry_run setting: %s", exc)
+
     from .reseller_bot import ResellerBotManager
     reseller_mgr = ResellerBotManager(getattr(crm, "provider", None))
 

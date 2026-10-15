@@ -77,14 +77,14 @@ class Settings:
     llm_provider: str = "openrouter"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_model: str = "nvidia/nemotron-3.5-lightning:free"
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct"
     openrouter_timeout_seconds: int = 25
     openrouter_max_output_tokens: int = 500
 
     # NVIDIA NIM (Direct API via build.nvidia.com)
     nvidia_api_key: str = ""
     nim_base_url: str = "https://integrate.api.nvidia.com/v1"
-    nim_model: str = "nvidia/nemotron-3.5-lightning"
+    nim_model: str = "meta/llama-3.3-70b-instruct"
 
     # --- Business profile ---
     business_name: str = "NexgloTV"
@@ -158,12 +158,12 @@ class Settings:
             llm_provider=resolved_provider,
             openrouter_api_key=openrouter_key,
             openrouter_base_url=get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            openrouter_model=get("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free"),
+            openrouter_model=get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct"),
             openrouter_timeout_seconds=int(get("OPENROUTER_TIMEOUT_SECONDS", "25")),
             openrouter_max_output_tokens=int(get("OPENROUTER_MAX_OUTPUT_TOKENS", "500")),
             nvidia_api_key=nvidia_key,
             nim_base_url=get("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-            nim_model=get("NIM_MODEL", "nvidia/nemotron-3.5-lightning"),
+            nim_model=get("NIM_MODEL", "meta/llama-3.3-70b-instruct"),
             business_name=get("BUSINESS_NAME", "NexgloTV"),
             business_phone=get("BUSINESS_PHONE"),
             business_description=get("BUSINESS_DESCRIPTION", "Internet-based television and entertainment service in Sierra Leone"),

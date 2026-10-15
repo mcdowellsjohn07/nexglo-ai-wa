@@ -129,6 +129,7 @@ def get_settings(desk: StaffDesk = Depends(staff_desk)) -> dict:
 def set_dry_run(body: DryRunIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
     try:
         new_val = desk.services.wa.set_dry_run(body.enabled)
+        desk.store.set_setting("dry_run", "1" if new_val else "0")
         return {"status": "success", "dry_run": new_val}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -306,6 +307,7 @@ def select_model(body: SelectModelIn, desk: StaffDesk = Depends(staff_desk)) -> 
     """Hot-swap the active OpenRouter/LLM model dynamically without server restart."""
     services = desk.services
     new_model = services.llm.set_model(body.model)
+    desk.store.set_setting("active_model", new_model)
     return {
         "status": "success",
         "current_model": new_model,

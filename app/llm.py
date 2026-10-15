@@ -26,7 +26,6 @@ RECOMMENDED_OPENROUTER_MODELS = [
         "description": "NVIDIA's cutting-edge hybrid Mamba-2/MoE architecture. Blazing-fast inference, high throughput, and 100% free.",
         "cost_per_m_tokens": "Free ($0.00)",
         "latency": "Ultra-fast (~200ms)",
-        "default": True,
     },
     {
         "id": "nvidia/nemotron-3.5-lightning",
@@ -51,6 +50,7 @@ RECOMMENDED_OPENROUTER_MODELS = [
         "description": "State-of-the-art open weights, excellent for customer service and high-speed WhatsApp chatting.",
         "cost_per_m_tokens": "$0.12 input / $0.30 output",
         "latency": "Fast (~600ms)",
+        "default": True,
     },
     {
         "id": "meta-llama/llama-3.3-70b-instruct:free",
@@ -96,27 +96,27 @@ RECOMMENDED_OPENROUTER_MODELS = [
 
 RECOMMENDED_NVIDIA_MODELS = [
     {
+        "id": "meta/llama-3.3-70b-instruct",
+        "name": "Llama 3.3 70B Instruct (Default - NVIDIA NIM)",
+        "provider": "Meta via NVIDIA NIM",
+        "description": "State-of-the-art open weights on NVIDIA GPU infrastructure with free credits.",
+        "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
+        "latency": "Fast (~500ms)",
+        "default": True,
+    },
+    {
         "id": "nvidia/nemotron-3.5-lightning",
-        "name": "NVIDIA Nemotron 3.5 Lightning (Default)",
+        "name": "NVIDIA Nemotron 3.5 Lightning",
         "provider": "NVIDIA NIM",
         "description": "NVIDIA's cutting-edge hybrid Mamba-2/MoE architecture hosted on NVIDIA accelerated compute.",
         "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
         "latency": "Ultra-fast (~200ms)",
-        "default": True,
     },
     {
         "id": "nvidia/llama-3.1-nemotron-70b-instruct",
         "name": "NVIDIA Llama 3.1 Nemotron 70B",
         "provider": "NVIDIA NIM",
         "description": "NVIDIA's customized model optimized for helpfulness, reasoning, and conversational customer care.",
-        "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
-        "latency": "Fast (~500ms)",
-    },
-    {
-        "id": "meta/llama-3.3-70b-instruct",
-        "name": "Llama 3.3 70B Instruct (NVIDIA NIM)",
-        "provider": "Meta via NVIDIA NIM",
-        "description": "State-of-the-art open weights on NVIDIA GPU infrastructure with free credits.",
         "cost_per_m_tokens": "Free API Credits (build.nvidia.com)",
         "latency": "Fast (~500ms)",
     },
@@ -165,7 +165,7 @@ class LLMClient:
                         api_key=settings.nvidia_api_key,
                         timeout=30.0,
                     )
-                    self._model = settings.nim_model or "nvidia/nemotron-3.5-lightning"
+                    self._model = settings.nim_model or "meta/llama-3.3-70b-instruct"
                     self._extra_headers = {}
                     log.info("Initialized direct NVIDIA NIM client with model: %s", self._model)
                 else:
@@ -175,7 +175,7 @@ class LLMClient:
                         api_key=settings.openrouter_api_key,
                         timeout=settings.openrouter_timeout_seconds,
                     )
-                    self._model = settings.openrouter_model or "nvidia/nemotron-3.5-lightning:free"
+                    self._model = settings.openrouter_model or "meta-llama/llama-3.3-70b-instruct"
                     self._extra_headers = {
                         "HTTP-Referer": "https://nexglotv.com",
                         "X-Title": "NexgloTV WhatsApp Agent",
@@ -189,13 +189,13 @@ class LLMClient:
                     settings.nim_model
                     if settings.llm_provider in ("nvidia", "nim")
                     else settings.openrouter_model
-                ) or "nvidia/nemotron-3.5-lightning:free"
+                ) or "meta/llama-3.3-70b-instruct"
         else:
             self._model = (
                 settings.nim_model
                 if settings.llm_provider in ("nvidia", "nim")
                 else settings.openrouter_model
-            ) or "nvidia/nemotron-3.5-lightning:free"
+            ) or "meta/llama-3.3-70b-instruct"
             log.warning(
                 "LLM API key not set. Running in offline mode "
                 "(keyword routing + raw KB answers)."
