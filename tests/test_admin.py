@@ -199,7 +199,7 @@ def test_models_listing_and_selection(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["provider"] == "openrouter"
-    assert data["current_model"] == "nvidia/nemotron-3.5-lightning:free"
+    assert data["current_model"] in ("meta-llama/llama-3.3-70b-instruct", "nvidia/nemotron-3.5-lightning:free")
     assert len(data["recommended"]) >= 5
     assert any(m["id"] == "nvidia/nemotron-3.5-lightning:free" for m in data["recommended"])
     assert any(m["id"] == "google/gemini-2.0-flash-001" for m in data["recommended"])

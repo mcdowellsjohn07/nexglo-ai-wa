@@ -9,13 +9,13 @@ from app.config import Settings
 from app.llm import LLMClient, RECOMMENDED_OPENROUTER_MODELS, RECOMMENDED_NVIDIA_MODELS
 
 
-def test_nemotron_default_model():
+def test_default_model():
     settings = Settings()
-    assert settings.openrouter_model == "nvidia/nemotron-3.5-lightning:free"
-    assert settings.nim_model == "nvidia/nemotron-3.5-lightning"
+    assert settings.openrouter_model == "meta-llama/llama-3.3-70b-instruct"
+    assert settings.nim_model == "meta/llama-3.3-70b-instruct"
 
     client = LLMClient(settings)
-    assert client.model == "nvidia/nemotron-3.5-lightning:free"
+    assert client.model == "meta-llama/llama-3.3-70b-instruct"
     assert client.available is False  # No key configured
 
 
@@ -92,9 +92,9 @@ def test_openrouter_free_model_fallback_on_429():
         assert mock_instance.chat.completions.create.call_args_list[1][1]["model"] == "nvidia/nemotron-3.5-lightning"
 
 
-def test_recommended_catalog_contains_nemotron():
-    assert RECOMMENDED_OPENROUTER_MODELS[0]["id"] == "nvidia/nemotron-3.5-lightning:free"
-    assert RECOMMENDED_OPENROUTER_MODELS[0].get("default") is True
+def test_recommended_catalog_defaults():
+    assert any(m["id"] == "meta-llama/llama-3.3-70b-instruct" and m.get("default") is True for m in RECOMMENDED_OPENROUTER_MODELS)
+    assert any(m["id"] == "nvidia/nemotron-3.5-lightning:free" for m in RECOMMENDED_OPENROUTER_MODELS)
 
-    assert RECOMMENDED_NVIDIA_MODELS[0]["id"] == "nvidia/nemotron-3.5-lightning"
-    assert RECOMMENDED_NVIDIA_MODELS[0].get("default") is True
+    assert any(m["id"] == "meta/llama-3.3-70b-instruct" and m.get("default") is True for m in RECOMMENDED_NVIDIA_MODELS)
+    assert any(m["id"] == "nvidia/nemotron-3.5-lightning" for m in RECOMMENDED_NVIDIA_MODELS)
