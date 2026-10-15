@@ -87,13 +87,20 @@ heroku config:set \
   LLM_PROVIDER="openrouter" \
   OPENROUTER_API_KEY="<YOUR_OPENROUTER_API_KEY>" \
   OPENROUTER_BASE_URL="https://openrouter.ai/api/v1" \
-  OPENROUTER_MODEL="meta-llama/llama-3.3-70b-instruct" \
+  OPENROUTER_MODEL="nvidia/nemotron-3.5-lightning:free" \
   OPENROUTER_TIMEOUT_SECONDS="25" \
   OPENROUTER_MAX_OUTPUT_TOKENS="500" \
   CRM_PROVIDER="lark_base" \
   LARK_BASE_TOKEN="E8jObNOAeaZqUHsyxRHjR9VcpBg" \
   DISCOUNT_PERCENT="20" \
   DISCOUNT_ACTIVE="true"
+
+# Alternatively, if using direct NVIDIA NIM (from build.nvidia.com):
+# heroku config:set \
+#   LLM_PROVIDER="nvidia" \
+#   NVIDIA_API_KEY="nvapi-your-key-here" \
+#   NIM_MODEL="nvidia/nemotron-3.5-lightning"
+
 ```
 
 > **Note on Initial Setup:** Keep `WHATSAPP_DRY_RUN=1` initially while confirming health and webhook validation. Once verified, set `WHATSAPP_DRY_RUN=0` to enable outbound WhatsApp messaging.
