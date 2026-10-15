@@ -29,6 +29,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: var(--text);
       line-height: 1.5;
       padding: 24px;
+      -webkit-font-smoothing: antialiased;
     }
     .header {
       display: flex;
@@ -42,7 +43,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
     .title-area h1 { font-size: 24px; font-weight: 700; color: #fff; }
     .title-area p { color: var(--text-muted); font-size: 14px; }
-    .auth-bar { display: flex; align-items: center; gap: 8px; }
+    .auth-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .auth-input { width: 220px; }
     input, select, textarea, button {
       font-family: inherit;
       font-size: 14px;
@@ -52,6 +54,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       color: #fff;
       padding: 8px 12px;
       outline: none;
+      touch-action: manipulation;
     }
     input:focus, select:focus, textarea:focus { border-color: var(--primary); }
     button {
@@ -59,25 +62,39 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border: none;
       cursor: pointer;
       font-weight: 600;
-      transition: background 0.2s;
+      transition: all 0.2s;
     }
     button:hover { background: var(--primary-hover); }
     button.btn-success { background: var(--success); }
     button.btn-danger { background: var(--danger); }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 20px;
       margin-bottom: 24px;
+    }
+    .desk-grid {
+      grid-template-columns: 360px 1fr;
     }
     .card {
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px;
+      word-break: break-word;
     }
-    .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #fff; display: flex; align-items: center; justify-content: space-between; }
-    .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
+    .card h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; gap: 12px; }
     .stat-row:last-child { border-bottom: none; }
     .badge {
       display: inline-block;
@@ -85,11 +102,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       border-radius: 12px;
       font-size: 12px;
       font-weight: 600;
+      white-space: nowrap;
     }
     .badge-green { background: rgba(16, 185, 129, 0.2); color: var(--success); }
     .badge-yellow { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
     .badge-blue { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
-    .queue-list { max-height: 280px; overflow-y: auto; }
+    .queue-list { max-height: 400px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .queue-item {
       padding: 12px;
       border: 1px solid var(--border);
@@ -97,28 +115,61 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       margin-bottom: 10px;
       cursor: pointer;
       background: #141b2d;
-      transition: border-color 0.2s;
+      transition: all 0.2s;
     }
     .queue-item:hover, .queue-item.active { border-color: var(--primary); background: #1c263f; }
     .chat-box {
       background: #0f1524;
       border: 1px solid var(--border);
       border-radius: 8px;
-      height: 280px;
+      height: 380px;
       overflow-y: auto;
       padding: 12px;
       margin-bottom: 12px;
       display: flex;
       flex-direction: column;
       gap: 8px;
+      -webkit-overflow-scrolling: touch;
     }
-    .msg { max-width: 80%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
+    .msg { max-width: 82%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.4; word-break: break-word; }
     .msg-user { align-self: flex-start; background: #1f293d; color: #f3f4f6; }
     .msg-bot { align-self: flex-end; background: #3730a3; color: #fff; }
     .msg-staff { align-self: flex-end; background: #059669; color: #fff; }
     .msg-meta { font-size: 10px; opacity: 0.7; margin-top: 4px; }
     .reply-area { display: flex; gap: 8px; }
-    .reply-area input { flex: 1; }
+    .reply-area input { flex: 1; min-width: 0; }
+    .chat-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* Tablet & Mobile Media Queries */
+    @media (max-width: 960px) {
+      body { padding: 14px; }
+      .header { margin-bottom: 16px; padding-bottom: 12px; }
+      .grid { gap: 14px; margin-bottom: 16px; }
+      .desk-grid { grid-template-columns: 1fr; }
+      .queue-list { max-height: 280px; }
+      .chat-box { height: 350px; }
+      .btn-mobile-back { display: inline-block !important; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 10px; }
+      .title-area h1 { font-size: 19px; }
+      .title-area p { font-size: 12px; }
+      .auth-bar { width: 100%; display: flex; }
+      .auth-input { flex: 1; width: auto; font-size: 16px; }
+      .auth-bar button { padding: 8px 14px; }
+      .card { padding: 14px; border-radius: 10px; }
+      .card h2 { font-size: 15px; flex-direction: column; align-items: stretch; gap: 8px; }
+      .chat-header-actions { width: 100%; justify-content: space-between; }
+      .chat-header-actions button { flex: 1; text-align: center; font-size: 11px; padding: 8px 6px; }
+      .reply-area { flex-direction: column; gap: 6px; }
+      .reply-area input { font-size: 16px; padding: 10px 12px; }
+      .reply-area button { width: 100%; padding: 12px; font-size: 14px; font-weight: 700; }
+      .msg { max-width: 92%; }
+      .chat-box { height: 320px; padding: 8px; }
+      .queue-list { max-height: 220px; }
+      .stat-row { font-size: 13px; }
+    }
   </style>
 </head>
 <body>
@@ -128,7 +179,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <p>Live WhatsApp Operations, Model Selector & Human Handoff Control</p>
     </div>
     <div class="auth-bar">
-      <input type="password" id="adminToken" placeholder="Enter ADMIN_TOKEN" style="width: 220px;">
+      <input type="password" id="adminToken" class="auth-input" placeholder="Enter ADMIN_TOKEN">
       <button onclick="saveToken()">Save Token</button>
     </div>
   </div>
@@ -193,13 +244,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 
   <!-- Live Operations & Conversations Desk -->
-  <div class="grid" style="grid-template-columns: 360px 1fr;">
-    <div class="card">
+  <div class="grid desk-grid">
+    <div class="card" id="queueListCard">
       <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
         <button id="tabAllChats" onclick="switchTab('all')" style="flex: 1; padding: 6px 10px; font-size: 13px; background: var(--primary);">All Chats (<span id="chatsCount">0</span>)</button>
         <button id="tabHandoffs" onclick="switchTab('handoffs')" style="flex: 1; padding: 6px 10px; font-size: 13px; background: #1f293d;">Handoffs (<span id="queueCount">0</span>)</button>
       </div>
-      <div id="queueList" class="queue-list" style="max-height: 400px;">
+      <div id="queueList" class="queue-list">
         <p style="color: var(--text-muted); font-size: 13px; padding: 8px;">Loading chats...</p>
       </div>
       <div style="display: flex; gap: 8px; margin-top: 12px;">
@@ -208,17 +259,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="chatCard">
       <h2>
         <span>Chat: <span id="activeContact" style="color: var(--primary);">Select a conversation</span></span>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="chat-header-actions">
+          <button id="btnMobileBackToList" class="btn-mobile-back" onclick="scrollToChatsList()" style="display: none; padding: 6px 12px; font-size: 12px; background: #1f293d; border: 1px solid var(--border); color: #fff;">&larr; Chats</button>
           <button id="contactModeSwitchBtn" onclick="toggleContactMode()" style="display: none; padding: 6px 14px; font-size: 12px; font-weight: 700; border-radius: 20px; transition: all 0.2s; cursor: pointer;"></button>
           <button onclick="refreshActiveChat()" style="padding: 6px 12px; font-size: 12px; background: #374151;">Reload Chat</button>
         </div>
       </h2>
       <div id="chatModeBanner" style="display: none; margin-bottom: 8px; font-size: 12px; padding: 8px 12px; border-radius: 6px;"></div>
       <div id="contactMeta" style="display: none; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; padding: 6px 10px; background: #141b2d; border-radius: 6px;"></div>
-      <div id="chatBox" class="chat-box" style="height: 380px;">
+      <div id="chatBox" class="chat-box">
         <p style="color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;">Click a conversation from the left to read messages and reply.</p>
       </div>
       <div class="reply-area">
@@ -566,6 +618,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       updateChatModeDisplay(currentContactHandoff);
       fetchConversation(waId, false);
       refreshCurrentTab(true);
+
+      // On mobile/tablet screens, smoothly scroll chat into view so user can view/reply immediately
+      if (window.innerWidth < 960) {
+        const chatCard = document.getElementById("chatCard");
+        if (chatCard) {
+          setTimeout(() => chatCard.scrollIntoView({ behavior: 'smooth' }), 50);
+        }
+      }
+    }
+
+    function scrollToChatsList() {
+      const el = document.getElementById("queueListCard");
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
     }
 
     function updateChatModeDisplay(isHandoff) {
