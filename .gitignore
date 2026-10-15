@@ -43,3 +43,4 @@ lark_*_qr.png
 data/payments.yaml
 data/approved_apps.json
 *.zip
+backups/

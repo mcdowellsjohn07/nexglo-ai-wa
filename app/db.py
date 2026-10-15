@@ -369,3 +369,35 @@ class Database:
         with self._connect() as con:
             row = con.execute("SELECT COALESCE(MAX(id), 0) AS m FROM outbox").fetchone()
         return int(row["m"])
+
+    # ---------------------------------------------------------------- backup
+    def export_backup(self) -> dict[str, Any]:
+        """Export a complete snapshot of all tables as a JSON-serializable dict."""
+        tables = [
+            "conversations",
+            "messages",
+            "handoffs",
+            "bookings",
+            "outbox",
+            "processed_messages",
+            "app_settings",
+        ]
+        snapshot: dict[str, Any] = {
+            "version": "1.0",
+            "database_type": "turso" if getattr(self, "is_turso", False) else "sqlite",
+            "exported_at": self._ts(),
+            "table_counts": {},
+            "data": {},
+        }
+        with self._connect() as con:
+            for tbl in tables:
+                try:
+                    rows = con.execute(f"SELECT * FROM {tbl}").fetchall()
+                    serialized_rows = [dict(r) for r in rows]
+                    snapshot["data"][tbl] = serialized_rows
+                    snapshot["table_counts"][tbl] = len(serialized_rows)
+                except Exception as exc:
+                    log.warning("Could not export table %s: %s", tbl, exc)
+                    snapshot["data"][tbl] = []
+                    snapshot["table_counts"][tbl] = 0
+        return snapshot

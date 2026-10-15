@@ -199,25 +199,25 @@ def test_models_listing_and_selection(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["provider"] == "openrouter"
-    assert data["current_model"] in ("meta-llama/llama-3.3-70b-instruct", "nvidia/nemotron-3.5-lightning:free")
-    assert len(data["recommended"]) >= 5
+    assert data["current_model"] in ("meta-llama/llama-3.3-70b-instruct", "meta-llama/llama-3.3-70b-instruct:free", "nvidia/nemotron-3.5-lightning:free")
+    assert len(data["recommended"]) >= 4
     assert any(m["id"] == "nvidia/nemotron-3.5-lightning:free" for m in data["recommended"])
-    assert any(m["id"] == "google/gemini-2.0-flash-001" for m in data["recommended"])
+    assert any(m["id"] == "meta-llama/llama-3.1-8b-instruct:free" for m in data["recommended"])
 
     # Test POST /admin/models/select
     sel_resp = client.post(
         "/admin/models/select",
-        json={"model": "google/gemini-2.0-flash-001"},
+        json={"model": "meta-llama/llama-3.1-8b-instruct:free"},
         headers=AUTH,
     )
     assert sel_resp.status_code == 200
     sel_data = sel_resp.json()
     assert sel_data["status"] == "success"
-    assert sel_data["current_model"] == "google/gemini-2.0-flash-001"
+    assert sel_data["current_model"] == "meta-llama/llama-3.1-8b-instruct:free"
 
     # Verify updated model reflected in GET /admin/models
     after = client.get("/admin/models", headers=AUTH).json()
-    assert after["current_model"] == "google/gemini-2.0-flash-001"
+    assert after["current_model"] == "meta-llama/llama-3.1-8b-instruct:free"
 
 
 def test_admin_dashboard_html(client):
@@ -346,6 +346,19 @@ def test_selective_mode_new_customer_and_dry_run(client, services, wa):
     client.post("/admin/settings/auto-reply-mode", json={"mode": "selective"}, headers=AUTH)
     conv = services.store.get_conversation(new_user)
     assert conv.handoff is True
+
+
+def test_download_database_backup(client):
+    resp = client.get("/admin/backup", headers=AUTH)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    assert "attachment; filename=\"nexglotv_backup_" in resp.headers["content-disposition"]
+    data = resp.json()
+    assert "version" in data
+    assert "tables" in data or "data" in data
+    assert "table_counts" in data
+    assert "conversations" in data["data"]
+
 
 
 

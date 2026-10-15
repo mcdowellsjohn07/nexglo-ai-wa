@@ -8,7 +8,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <title>NexgloTV — AI Agent Staff Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"></noscript>
   <style>
     :root {
       --bg: #0b0f19;
@@ -210,20 +211,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div style="margin-bottom: 12px;">
         <label style="font-size: 12px; color: var(--text-muted);">Choose Model:</label>
         <select id="modelSelect" style="width: 100%; margin-top: 4px;">
-          <option value="nvidia/nemotron-3.5-lightning:free">NVIDIA Nemotron 3.5 Lightning (100% Free - Default)</option>
-          <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B Instruct (Meta)</option>
-          <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B Instruct (Free Tier)</option>
-          <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash (Fastest)</option>
-          <option value="deepseek/deepseek-chat">DeepSeek V3 (Reasoning)</option>
-          <option value="anthropic/claude-3.5-haiku">Claude 3.5 Haiku (Safety)</option>
-          <option value="openai/gpt-4o-mini">GPT-4o Mini (OpenAI)</option>
+          <option value="meta/llama-3.3-70b-instruct" selected>Llama 3.3 70B Instruct (Default - Free Tier)</option>
+          <option value="nvidia/nemotron-3.5-lightning">NVIDIA Nemotron 3.5 Lightning (100% Free)</option>
+          <option value="nvidia/llama-3.1-nemotron-70b-instruct">NVIDIA Llama 3.1 Nemotron 70B (100% Free)</option>
+          <option value="meta/llama-3.1-8b-instruct">Llama 3.1 8B Instruct (100% Free)</option>
+          <option value="mistralai/mistral-large-2-instruct">Mistral Large 2 (100% Free)</option>
+          <option value="deepseek-ai/deepseek-r1">DeepSeek R1 (100% Free)</option>
         </select>
       </div>
       <button onclick="changeModel()" class="btn-success" style="width: 100%;">Apply Model Now</button>
       <p id="modelStatus" style="font-size: 12px; margin-top: 8px; color: var(--success);"></p>
     </div>
 
-    <!-- Card 3: Quick Links -->
+    <!-- Card 3: Quick Links & Backups -->
     <div class="card">
       <h2>Resources & Documentation</h2>
       <div class="stat-row">
@@ -238,8 +238,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <span>Lark Base CRM:</span>
         <a href="https://applink.larksuite.com/client/base" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">Lark Workspace &rarr;</a>
       </div>
-      <div style="margin-top: 18px;">
-        <button onclick="runAutomations()" style="width: 100%;">Trigger Automations Run</button>
+      <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+        <button onclick="downloadBackup()" class="btn-success" style="width: 100%; background: #059669; font-weight: 600;">📥 Download Database Backup (JSON)</button>
+        <button onclick="runAutomations()" style="width: 100%; background: #374151;">Trigger Automations Run</button>
       </div>
     </div>
   </div>
@@ -291,6 +292,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     function getSavedToken() {
       try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const qToken = urlParams.get("token") || (window.location.hash.startsWith("#token=") ? window.location.hash.substring(7) : "");
+        if (qToken && qToken.trim()) {
+          const cleanToken = qToken.trim();
+          setSavedToken(cleanToken);
+          try {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          } catch (e) {}
+          return cleanToken;
+        }
         return localStorage.getItem("nexglo_admin_token") || "";
       } catch (e) {
         return "";
@@ -305,25 +316,52 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     function getAuthHeader() {
       const el = document.getElementById("adminToken");
-      const token = getSavedToken() || (el ? el.value.trim() : "");
+      const token = (el ? el.value.trim() : "") || getSavedToken();
       return { "Authorization": "Bearer " + token, "Content-Type": "application/json" };
     }
 
     function saveToken() {
       const el = document.getElementById("adminToken");
       const token = el ? el.value.trim() : "";
+      if (!token) {
+        alert("Please enter a valid ADMIN_TOKEN!");
+        return;
+      }
       setSavedToken(token);
-      alert("Admin Token saved!");
       fetchHealth();
       fetchSettings();
       refreshCurrentTab();
       fetchModels();
     }
 
+    function setupTokenListeners() {
+      const el = document.getElementById("adminToken");
+      if (!el) return;
+      let timer = null;
+      const onTokenUpdate = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          const token = el.value.trim();
+          if (token && token.length >= 8) {
+            setSavedToken(token);
+            fetchSettings();
+            refreshCurrentTab();
+            fetchModels();
+          }
+        }, 300);
+      };
+      el.addEventListener("input", onTokenUpdate);
+      el.addEventListener("change", onTokenUpdate);
+      el.addEventListener("paste", onTokenUpdate);
+    }
+
     function initDashboard() {
       const saved = getSavedToken();
       const el = document.getElementById("adminToken");
       if (saved && el) el.value = saved;
+      setupTokenListeners();
+
+      // Immediate fetch
       fetchHealth();
       fetchSettings();
       refreshCurrentTab();
@@ -339,11 +377,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }, 4000);
     }
 
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", initDashboard);
-    } else {
-      initDashboard();
-    }
+    // Run immediately since DOM elements above script are already parsed
+    initDashboard();
 
     function switchTab(tab) {
       currentTab = tab;
@@ -368,11 +403,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     async function fetchHealth() {
+      const healthBadge = document.getElementById("healthBadge");
       try {
-        const res = await fetch("/health");
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch("/health", { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         document.getElementById("valBusiness").textContent = data.business || "NexgloTV";
-        document.getElementById("valProvider").textContent = data.llm || "-";
+        document.getElementById("valProvider").textContent = (data.llm || "-") + " (NVIDIA NIM)";
         document.getElementById("valSig").textContent = data.signature_verification ? "Yes (Protected)" : "No";
         const dbEl = document.getElementById("valDatabase");
         if (dbEl) {
@@ -382,11 +422,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             dbEl.innerHTML = '<span class="badge badge-yellow">⚠️ Local SQLite (Ephemeral)</span>';
           }
         }
-        document.getElementById("healthBadge").textContent = "Operational";
-        document.getElementById("healthBadge").className = "badge badge-green";
+        if (healthBadge) {
+          healthBadge.textContent = "Operational";
+          healthBadge.className = "badge badge-green";
+        }
       } catch (e) {
-        document.getElementById("healthBadge").textContent = "Error";
-        document.getElementById("healthBadge").className = "badge badge-danger";
+        if (healthBadge) {
+          healthBadge.textContent = "Degraded / Offline";
+          healthBadge.className = "badge badge-danger";
+        }
       }
     }
 
@@ -573,6 +617,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function fetchAllConversations(silent = false) {
       try {
         const res = await fetch("/admin/conversations?limit=50", { headers: getAuthHeader() });
+        if (res.status === 401) {
+          const list = document.getElementById("queueList");
+          if (list) {
+            list.innerHTML = '<div style="padding: 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); border-radius: 8px; font-size: 13px; color: #fca5a5;">' +
+              '🔑 <strong>Admin Token Required:</strong><br>Enter your <code>ADMIN_TOKEN</code> above to load customer chats.' +
+              '</div>';
+          }
+          return;
+        }
         if (!res.ok) return;
         const data = await res.json();
         const convs = data.conversations || [];
@@ -615,6 +668,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function fetchQueue(silent = false) {
       try {
         const res = await fetch("/admin/handoffs", { headers: getAuthHeader() });
+        if (res.status === 401) return;
         if (!res.ok) return;
         const data = await res.json();
         const count = data.count || 0;
@@ -920,6 +974,37 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         alert("Automations completed! Processed: " + JSON.stringify(data));
       } catch (e) {
         alert("Failed to run automations: " + e);
+      }
+    }
+
+    async function downloadBackup() {
+      try {
+        const res = await fetch("/admin/backup", { headers: getAuthHeader() });
+        if (res.status === 401) {
+          alert("Please enter a valid ADMIN_TOKEN in the top right box first.");
+          return;
+        }
+        if (!res.ok) {
+          alert("Backup failed with status: " + res.status);
+          return;
+        }
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.style.display = "none";
+        a.href = url;
+        const disp = res.headers.get("content-disposition");
+        let filename = "nexglotv_backup.json";
+        if (disp && disp.includes("filename=")) {
+          filename = disp.split("filename=")[1].replace(/["']/g, "").trim();
+        }
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } catch (e) {
+        alert("Failed to download database backup: " + e);
       }
     }
   </script>

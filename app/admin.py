@@ -20,7 +20,7 @@ import hmac
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from .deps import Services
@@ -313,4 +313,22 @@ def select_model(body: SelectModelIn, desk: StaffDesk = Depends(staff_desk)) -> 
         "current_model": new_model,
         "provider": services.settings.llm_provider,
     }
+
+
+@router.get("/backup")
+def download_backup(desk: StaffDesk = Depends(staff_desk)) -> Response:
+    """Download a complete JSON database backup file of all customer data, chats and settings."""
+    import json
+    from datetime import datetime, timezone
+
+    data = desk.store.export_backup()
+    now_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"nexglotv_backup_{now_str}.json"
+    content = json.dumps(data, indent=2, ensure_ascii=False)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 

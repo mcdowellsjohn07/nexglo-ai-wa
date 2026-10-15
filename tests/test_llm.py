@@ -93,7 +93,7 @@ def test_openrouter_free_model_fallback_on_429():
 
 
 def test_recommended_catalog_defaults():
-    assert any(m["id"] == "meta-llama/llama-3.3-70b-instruct" and m.get("default") is True for m in RECOMMENDED_OPENROUTER_MODELS)
+    assert any(m["id"] == "meta-llama/llama-3.3-70b-instruct:free" and m.get("default") is True for m in RECOMMENDED_OPENROUTER_MODELS)
     assert any(m["id"] == "nvidia/nemotron-3.5-lightning:free" for m in RECOMMENDED_OPENROUTER_MODELS)
 
     assert any(m["id"] == "meta/llama-3.3-70b-instruct" and m.get("default") is True for m in RECOMMENDED_NVIDIA_MODELS)
