@@ -136,6 +136,7 @@ class StaffDesk:
         return items
 
     def conversation(self, wa_id: str, limit: int = 50) -> dict:
+        self.store.ensure_conversation(wa_id)
         conv = self._conversation(wa_id)
         out = self._summary(conv)
         out["draft"] = {k: v for k, v in conv.draft.items() if not k.startswith("_")}
@@ -200,6 +201,7 @@ class StaffDesk:
 
     def set_contact_mode(self, wa_id: str, mode: str) -> dict:
         """Switch a specific contact between 'bot' (AI active) and 'human' (bot paused)."""
+        self.store.ensure_conversation(wa_id)
         clean_mode = (mode or "").strip().lower()
         if clean_mode in ("bot", "ai", "auto"):
             res = self.resolve(wa_id, notify=False)
