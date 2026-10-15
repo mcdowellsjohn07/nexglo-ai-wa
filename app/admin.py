@@ -31,12 +31,15 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
+@router.get("/dashboard/", response_class=HTMLResponse)
 @router.get("", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse)
 def admin_dashboard() -> HTMLResponse:
     """Sleek web-based Staff & Admin Console for NexgloTV."""
     from .dashboard_html import DASHBOARD_HTML
 
     return HTMLResponse(content=DASHBOARD_HTML)
+
 
 
 

@@ -221,15 +221,12 @@ def test_models_listing_and_selection(client):
 
 
 def test_admin_dashboard_html(client):
-    res = client.get("/admin/dashboard")
-    assert res.status_code == 200
-    assert "text/html" in res.headers.get("content-type", "")
-    assert "NexgloTV" in res.text
-    assert "AI Agent — Staff Console" in res.text
+    for path in ("/admin/dashboard", "/admin/dashboard/", "/admin", "/admin/", "/dashboard", "/dashboard/"):
+        res = client.get(path)
+        assert res.status_code == 200, f"Failed on path: {path}"
+        assert "text/html" in res.headers.get("content-type", "")
+        assert "NexgloTV" in res.text
+        assert "AI Agent — Staff Console" in res.text
 
-    # Also check alias /admin
-    res_root = client.get("/admin")
-    assert res_root.status_code == 200
-    assert "text/html" in res_root.headers.get("content-type", "")
 
 

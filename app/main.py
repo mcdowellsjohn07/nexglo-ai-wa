@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 
 from . import __version__
 from .config import Settings, get_settings
@@ -86,13 +87,21 @@ def create_app(services: Optional[Services] = None, settings: Optional[Settings]
             "admin_api": s.admin_enabled,
         }
 
+    @app.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/dashboard/", response_class=HTMLResponse, include_in_schema=False)
+    async def dashboard_view() -> HTMLResponse:
+        from .dashboard_html import DASHBOARD_HTML
+
+        return HTMLResponse(content=DASHBOARD_HTML)
+
     @app.get("/")
     async def root() -> dict:
         links = {
             "name": "nexglotv-whatsapp-agent",
+            "dashboard": "/admin/dashboard",
+            "admin": "/admin/dashboard",
             "webhook": "/webhook",
             "health": "/health",
-            "admin": "/admin/handoffs",
             "docs": "/docs",
         }
         if settings.dry_run:
