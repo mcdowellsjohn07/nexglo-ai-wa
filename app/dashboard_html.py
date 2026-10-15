@@ -188,26 +188,36 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </div>
   </div>
 
-  <!-- Human Handoff Desk -->
-  <div class="grid" style="grid-template-columns: 340px 1fr;">
+  <!-- Live Operations & Conversations Desk -->
+  <div class="grid" style="grid-template-columns: 360px 1fr;">
     <div class="card">
-      <h2>Human Handoff Queue (<span id="queueCount">0</span>)</h2>
-      <div id="queueList" class="queue-list">
-        <p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No open customer handoffs.</p>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+        <button id="tabAllChats" onclick="switchTab('all')" style="flex: 1; padding: 6px 10px; font-size: 13px; background: var(--primary);">All Chats (<span id="chatsCount">0</span>)</button>
+        <button id="tabHandoffs" onclick="switchTab('handoffs')" style="flex: 1; padding: 6px 10px; font-size: 13px; background: #1f293d;">Handoffs (<span id="queueCount">0</span>)</button>
       </div>
-      <button onclick="fetchQueue()" style="width: 100%; margin-top: 12px;">Refresh Queue</button>
+      <div id="queueList" class="queue-list" style="max-height: 400px;">
+        <p style="color: var(--text-muted); font-size: 13px; padding: 8px;">Loading chats...</p>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <button onclick="refreshCurrentTab()" style="flex: 1; font-size: 12px; padding: 6px;">Refresh List</button>
+        <span id="pollIndicator" style="font-size: 11px; color: var(--text-muted); align-self: center;">Auto-sync: 4s</span>
+      </div>
     </div>
 
     <div class="card">
       <h2>
-        <span>Conversation: <span id="activeContact" style="color: var(--primary);">Select a contact</span></span>
-        <button id="resolveBtn" onclick="resolveChat()" class="btn-success" style="display: none; padding: 4px 10px; font-size: 12px;">Resolve & Hand Back to Bot</button>
+        <span>Chat: <span id="activeContact" style="color: var(--primary);">Select a conversation</span></span>
+        <div>
+          <button id="resolveBtn" onclick="resolveChat()" class="btn-success" style="display: none; padding: 4px 10px; font-size: 12px; margin-right: 8px;">Resolve Handoff</button>
+          <button onclick="refreshActiveChat()" style="padding: 4px 10px; font-size: 12px; background: #374151;">Reload Chat</button>
+        </div>
       </h2>
-      <div id="chatBox" class="chat-box">
-        <p style="color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 100px;">Click an item on the queue to load chat transcript.</p>
+      <div id="contactMeta" style="display: none; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; padding: 6px 10px; background: #141b2d; border-radius: 6px;"></div>
+      <div id="chatBox" class="chat-box" style="height: 380px;">
+        <p style="color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;">Click a conversation from the left to read messages and reply.</p>
       </div>
       <div class="reply-area">
-        <input type="text" id="replyText" placeholder="Type a message to send directly to customer WhatsApp...">
+        <input type="text" id="replyText" placeholder="Type a response to send directly to customer on WhatsApp..." onkeydown="if(event.key==='Enter') sendReply()">
         <button onclick="sendReply()">Send to WhatsApp</button>
       </div>
     </div>
@@ -215,6 +225,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   <script>
     let currentWaId = null;
+    let currentTab = 'all'; // 'all' | 'handoffs'
+    let isFetchingChat = false;
 
     function getAuthHeader() {
       const token = localStorage.getItem("nexglo_admin_token") || document.getElementById("adminToken").value.trim();
@@ -226,7 +238,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       localStorage.setItem("nexglo_admin_token", token);
       alert("Admin Token saved!");
       fetchHealth();
-      fetchQueue();
+      refreshCurrentTab();
       fetchModels();
     }
 
@@ -234,9 +246,39 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const saved = localStorage.getItem("nexglo_admin_token");
       if (saved) document.getElementById("adminToken").value = saved;
       fetchHealth();
-      fetchQueue();
+      refreshCurrentTab();
       fetchModels();
+
+      // Live auto-polling every 4 seconds
+      setInterval(() => {
+        refreshCurrentTab(true);
+        if (currentWaId) {
+          fetchConversation(currentWaId, true);
+        }
+      }, 4000);
     };
+
+    function switchTab(tab) {
+      currentTab = tab;
+      const btnAll = document.getElementById("tabAllChats");
+      const btnHand = document.getElementById("tabHandoffs");
+      if (tab === 'all') {
+        btnAll.style.background = "var(--primary)";
+        btnHand.style.background = "#1f293d";
+      } else {
+        btnAll.style.background = "#1f293d";
+        btnHand.style.background = "var(--primary)";
+      }
+      refreshCurrentTab();
+    }
+
+    function refreshCurrentTab(silent = false) {
+      if (currentTab === 'all') {
+        fetchAllConversations(silent);
+      } else {
+        fetchQueue(silent);
+      }
+    }
 
     async function fetchHealth() {
       try {
@@ -296,60 +338,151 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
-    async function fetchQueue() {
+    async function fetchAllConversations(silent = false) {
+      try {
+        const res = await fetch("/admin/conversations?limit=50", { headers: getAuthHeader() });
+        if (!res.ok) return;
+        const data = await res.json();
+        const convs = data.conversations || [];
+        document.getElementById("chatsCount").textContent = convs.length;
+
+        // Also fetch handoff count in background
+        fetch("/admin/handoffs", { headers: getAuthHeader() })
+          .then(r => r.json())
+          .then(d => { if (d.count !== undefined) document.getElementById("queueCount").textContent = d.count; })
+          .catch(() => {});
+
+        const list = document.getElementById("queueList");
+        if (!convs || convs.length === 0) {
+          list.innerHTML = '<p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No conversations yet. When someone messages your WhatsApp, it will appear here!</p>';
+          return;
+        }
+        let html = "";
+        convs.forEach(c => {
+          const isActive = c.wa_id === currentWaId ? " active" : "";
+          const name = c.profile_name || c.wa_id;
+          const preview = c.last_message ? (c.last_message.length > 55 ? c.last_message.substring(0, 52) + "..." : c.last_message) : (c.state || "active");
+          const handoffBadge = c.handoff ? ' <span class="badge badge-yellow" style="font-size: 10px;">Handoff</span>' : '';
+          html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${c.handoff})">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <strong>${name}${handoffBadge}</strong>
+              <small style="font-size: 10px; color: var(--text-muted);">${c.updated_at ? c.updated_at.split('T')[0] : ''}</small>
+            </div>
+            <div style="font-size: 12px; color: #9ca3af; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${preview}</div>
+          </div>`;
+        });
+        list.innerHTML = html;
+      } catch (e) {}
+    }
+
+    async function fetchQueue(silent = false) {
       try {
         const res = await fetch("/admin/handoffs", { headers: getAuthHeader() });
         if (!res.ok) return;
         const data = await res.json();
-        document.getElementById("queueCount").textContent = data.count || 0;
+        const count = data.count || 0;
+        document.getElementById("queueCount").textContent = count;
         const list = document.getElementById("queueList");
-        list.innerHTML = "";
         if (!data.handoffs || data.handoffs.length === 0) {
           list.innerHTML = '<p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No open customer handoffs.</p>';
           return;
         }
+        let html = "";
         data.handoffs.forEach(h => {
-          const div = document.createElement("div");
-          div.className = "queue-item" + (h.wa_id === currentWaId ? " active" : "");
-          div.innerHTML = "<strong>" + (h.profile_name || h.wa_id) + "</strong><br><small style='color: #9ca3af;'>Reason: " + (h.reason || "Human request") + "</small>";
-          div.onclick = () => selectContact(h.wa_id, h.profile_name);
-          list.appendChild(div);
+          const isActive = h.wa_id === currentWaId ? " active" : "";
+          const name = h.profile_name || h.wa_id;
+          html += `<div class="queue-item${isActive}" onclick="selectContact('${h.wa_id}', '${name.replace(/'/g, "\\'")}', true)">
+            <strong>${name}</strong> <span class="badge badge-yellow" style="font-size: 10px;">Waiting</span><br>
+            <small style='color: #9ca3af;'>Reason: ${h.reason || "Human agent requested"}</small>
+          </div>`;
         });
+        list.innerHTML = html;
       } catch (e) {}
     }
 
-    async function selectContact(waId, name) {
+    function selectContact(waId, name, isHandoff = false) {
       currentWaId = waId;
       document.getElementById("activeContact").textContent = (name || waId) + " (" + waId + ")";
-      document.getElementById("resolveBtn").style.display = "inline-block";
-      fetchConversation(waId);
+      const resolveBtn = document.getElementById("resolveBtn");
+      resolveBtn.style.display = isHandoff ? "inline-block" : "none";
+      fetchConversation(waId, false);
+      refreshCurrentTab(true);
     }
 
-    async function fetchConversation(waId) {
+    function refreshActiveChat() {
+      if (currentWaId) {
+        fetchConversation(currentWaId, false);
+      }
+    }
+
+    async function fetchConversation(waId, silent = false) {
+      if (isFetchingChat) return;
+      isFetchingChat = true;
       const chatBox = document.getElementById("chatBox");
-      chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 100px;'>Loading chat...</p>";
+      if (!silent) {
+        chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;'>Loading conversation transcript...</p>";
+      }
       try {
         const res = await fetch("/admin/conversations/" + waId, { headers: getAuthHeader() });
-        if (!res.ok) return;
+        if (!res.ok) { isFetchingChat = false; return; }
         const data = await res.json();
-        chatBox.innerHTML = "";
-        if (!data.transcript || data.transcript.length === 0) {
-          chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center;'>No messages yet.</p>";
+        const msgs = data.messages || data.transcript || [];
+
+        // Meta info strip
+        const metaDiv = document.getElementById("contactMeta");
+        let metaHtml = `<strong>Status:</strong> ${data.state || 'active'} | <strong>Lang:</strong> ${(data.lang || 'en').toUpperCase()}`;
+        if (data.draft && data.draft.quote) {
+          metaHtml += ` | <strong>Draft Quote:</strong> Le ${data.draft.quote.toLocaleString()}`;
+        }
+        if (data.lead && data.lead.stage) {
+          metaHtml += ` | <strong>Lead Stage:</strong> ${data.lead.stage}`;
+        }
+        metaDiv.innerHTML = metaHtml;
+        metaDiv.style.display = "block";
+
+        if (data.handoff) {
+          document.getElementById("resolveBtn").style.display = "inline-block";
+        }
+
+        if (msgs.length === 0) {
+          chatBox.innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 150px;'>No messages recorded for this contact yet.</p>";
+          isFetchingChat = false;
           return;
         }
-        data.transcript.forEach(m => {
-          const d = document.createElement("div");
-          d.className = "msg msg-" + (m.author || "bot");
-          d.innerHTML = "<div>" + m.body + "</div><div class='msg-meta'>" + (m.author || "bot").toUpperCase() + " &bull; " + (m.created_at || "") + "</div>";
-          chatBox.appendChild(d);
+
+        // Render messages
+        let html = "";
+        msgs.forEach(m => {
+          const author = m.author || "bot";
+          const time = m.created_at ? (m.created_at.includes("T") ? m.created_at.replace("T", " ").split(".")[0] : m.created_at) : "";
+          html += `<div class="msg msg-${author}">
+            <div>${escapeHtml(m.content || m.body || m.text || "")}</div>
+            <div class="msg-meta">${author.toUpperCase()} &bull; ${time}</div>
+          </div>`;
         });
-        chatBox.scrollTop = chatBox.scrollHeight;
-      } catch (e) {}
+
+        // Check if user was already at bottom to keep scrolled
+        const isAtBottom = (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) < 60;
+        chatBox.innerHTML = html;
+        if (!silent || isAtBottom) {
+          chatBox.scrollTop = chatBox.scrollHeight;
+        }
+      } catch (e) {
+      } finally {
+        isFetchingChat = false;
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     async function sendReply() {
-      if (!currentWaId) return alert("Select a conversation first!");
-      const text = document.getElementById("replyText").value.trim();
+      if (!currentWaId) return alert("Please select a conversation from the list first!");
+      const input = document.getElementById("replyText");
+      const text = input.value.trim();
       if (!text) return;
       try {
         const res = await fetch("/admin/conversations/" + currentWaId + "/reply", {
@@ -358,11 +491,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           body: JSON.stringify({ text })
         });
         if (res.ok) {
-          document.getElementById("replyText").value = "";
-          fetchConversation(currentWaId);
+          input.value = "";
+          fetchConversation(currentWaId, false);
         } else {
           const err = await res.json();
-          alert("Could not send: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
+          alert("Could not send reply: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
         }
       } catch (e) {
         alert("Failed to send: " + e);
@@ -377,11 +510,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           headers: getAuthHeader(),
           body: JSON.stringify({ notify: true })
         });
-        alert("Handed conversation back to bot!");
-        fetchQueue();
+        alert("Conversation resolved! Handed back to the AI bot.");
         document.getElementById("resolveBtn").style.display = "none";
-        document.getElementById("activeContact").textContent = "Select a contact";
-        document.getElementById("chatBox").innerHTML = "<p style='color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 100px;'>Click an item on the queue to load chat transcript.</p>";
+        refreshCurrentTab();
+        fetchConversation(currentWaId, false);
       } catch (e) {
         alert("Error: " + e);
       }

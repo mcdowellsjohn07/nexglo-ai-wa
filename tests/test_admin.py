@@ -229,4 +229,24 @@ def test_admin_dashboard_html(client):
         assert "AI Agent — Staff Console" in res.text
 
 
+def test_list_conversations_and_transcript_alias(client, services):
+    say(services, "Hello from Customer", wa_id="23276000001", name="Komba")
+    res = client.get("/admin/conversations", headers=AUTH)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["count"] >= 1
+    found = next((c for c in data["conversations"] if c["wa_id"] == "23276000001"), None)
+    assert found is not None
+    assert found["profile_name"] == "Komba"
+
+    # Verify both messages and transcript are returned by /admin/conversations/{wa_id}
+    conv_res = client.get("/admin/conversations/23276000001", headers=AUTH)
+    assert conv_res.status_code == 200
+    conv_data = conv_res.json()
+    assert "messages" in conv_data
+    assert "transcript" in conv_data
+    assert conv_data["messages"] == conv_data["transcript"]
+    assert len(conv_data["messages"]) >= 1
+
+
 

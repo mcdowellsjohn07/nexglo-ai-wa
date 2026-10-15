@@ -109,6 +109,12 @@ def list_handoffs(last: int = Query(5, ge=0, le=50), desk: StaffDesk = Depends(s
     return {"count": len(items), "handoffs": items}
 
 
+@router.get("/conversations")
+def list_conversations(limit: int = Query(50, ge=1, le=500), desk: StaffDesk = Depends(staff_desk)) -> dict:
+    items = desk.recent_conversations(limit=limit)
+    return {"count": len(items), "conversations": items}
+
+
 @router.get("/conversations/{wa_id}")
 def get_conversation(wa_id: str, limit: int = Query(50, ge=1, le=500), desk: StaffDesk = Depends(staff_desk)) -> dict:
     return _run(desk.conversation, wa_id, limit=limit)

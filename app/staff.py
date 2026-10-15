@@ -122,6 +122,19 @@ class StaffDesk:
             items.append(item)
         return items
 
+    def recent_conversations(self, limit: int = 50) -> list[dict]:
+        all_convs = self.store.list_conversations()
+        all_convs.sort(key=lambda c: c.updated_at or "", reverse=True)
+        items = []
+        for conv in all_convs[:limit]:
+            item = self._summary(conv)
+            last_msgs = self.store.transcript(conv.wa_id, limit=1)
+            last_entry = last_msgs[-1] if last_msgs else {}
+            item["last_message"] = last_entry.get("content") or last_entry.get("body") or ""
+            item["last_message_at"] = last_entry.get("created_at") or conv.updated_at
+            items.append(item)
+        return items
+
     def conversation(self, wa_id: str, limit: int = 50) -> dict:
         conv = self._conversation(wa_id)
         out = self._summary(conv)
@@ -152,7 +165,9 @@ class StaffDesk:
                 "account_status": customer.account_status,
                 "subscription_expires_at": customer.subscription_expires_at,
             }
-        out["messages"] = self.store.transcript(wa_id, limit=limit)
+        transcript = self.store.transcript(wa_id, limit=limit)
+        out["messages"] = transcript
+        out["transcript"] = transcript
         return out
 
     # ------------------------------------------------------------- actions
