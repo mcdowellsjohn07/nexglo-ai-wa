@@ -19,7 +19,7 @@ import logging
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 from .clock import Clock, system_clock, to_db
 
@@ -56,25 +56,48 @@ class SlotTaken(Exception):
 
 
 class Database:
-    def __init__(self, db_path: Path, schema_path: Path, clock: Optional[Clock] = None):
+    def __init__(
+        self,
+        db_path: Path,
+        schema_path: Path,
+        clock: Optional[Clock] = None,
+        turso_url: Optional[str] = None,
+        turso_token: Optional[str] = None,
+    ):
         self.db_path = Path(db_path)
         self.schema_path = Path(schema_path)
         self.clock: Clock = clock or system_clock
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.turso_url = (turso_url or "").strip()
+        self.turso_token = (turso_token or "").strip()
+        if not self.is_turso:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
+
+    @property
+    def is_turso(self) -> bool:
+        return bool(self.turso_url and self.turso_token)
 
     # ------------------------------------------------------------------ setup
     @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        con = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
-        con.row_factory = sqlite3.Row
-        # journal_mode=WAL is persistent (set once by schema.sql); the busy
-        # timeout is per connection.
-        con.execute("PRAGMA busy_timeout = 5000;")
-        try:
-            yield con
-        finally:
-            con.close()
+    def _connect(self) -> Iterator[Any]:
+        if self.is_turso:
+            from .turso_client import TursoConnection
+
+            con = TursoConnection(self.turso_url, self.turso_token)
+            try:
+                yield con
+            finally:
+                con.close()
+        else:
+            con = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
+            con.row_factory = sqlite3.Row
+            # journal_mode=WAL is persistent (set once by schema.sql); the busy
+            # timeout is per connection.
+            con.execute("PRAGMA busy_timeout = 5000;")
+            try:
+                yield con
+            finally:
+                con.close()
 
     def _ts(self) -> str:
         return to_db(self.clock())
@@ -90,7 +113,7 @@ class Database:
                 self._migrate(con, tables)
             con.executescript(schema)
 
-    def _migrate(self, con: sqlite3.Connection, tables: set[str]) -> None:
+    def _migrate(self, con: Any, tables: set[str]) -> None:
         """Bring a database created by an older version up to date, in place."""
         for table, column, ddl in _ADDED_COLUMNS:
             if table not in tables:

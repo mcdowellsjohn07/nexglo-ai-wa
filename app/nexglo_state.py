@@ -241,8 +241,10 @@ class Store(Database):
         schema_path: Path,
         clock: Optional[Clock] = None,
         default_auto_reply_mode: str = "all",
+        turso_url: Optional[str] = None,
+        turso_token: Optional[str] = None,
     ):
-        super().__init__(db_path, schema_path, clock=clock)
+        super().__init__(db_path, schema_path, clock=clock, turso_url=turso_url, turso_token=turso_token)
         self.default_auto_reply_mode = default_auto_reply_mode
 
     # ---------------------------------------------------------- conversations

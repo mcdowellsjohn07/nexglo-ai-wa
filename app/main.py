@@ -78,9 +78,12 @@ def create_app(services: Optional[Services] = None, settings: Optional[Settings]
     async def health() -> dict:
         s = settings
         wa_dry = s.dry_run
+        db_type = "turso" if s.turso_configured else "sqlite"
         try:
             svc = get_services()
             wa_dry = svc.wa.dry_run
+            if getattr(svc.store, "is_turso", False):
+                db_type = "turso"
         except Exception:
             pass
         return {
@@ -89,6 +92,7 @@ def create_app(services: Optional[Services] = None, settings: Optional[Settings]
             "llm": f"{s.llm_provider}" if s.llm_configured else "offline",
             "whatsapp": "dry_run" if wa_dry else "live",
             "dry_run": wa_dry,
+            "database": db_type,
             "signature_verification": s.signature_enforced,
             "admin_api": s.admin_enabled,
         }

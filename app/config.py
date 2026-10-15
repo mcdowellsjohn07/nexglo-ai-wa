@@ -118,6 +118,10 @@ class Settings:
     data_dir: Path = DATA_DIR
     db_path_override: Optional[Path] = None
 
+    # --- Turso / libSQL (Persistent Cloud Database) ---
+    turso_database_url: str = ""
+    turso_auth_token: str = ""
+
     # ------------------------------------------------------------ builders
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Settings":
@@ -176,6 +180,8 @@ class Settings:
             discount_percent=int(get("DISCOUNT_PERCENT", "20")),
             discount_active=True if _parse_bool(get("DISCOUNT_ACTIVE")) is None else bool(_parse_bool(get("DISCOUNT_ACTIVE"))),
             db_path_override=Path(db_path) if db_path else None,
+            turso_database_url=get("TURSO_DATABASE_URL"),
+            turso_auth_token=get("TURSO_AUTH_TOKEN"),
         )
 
     # --------------------------------------------------------- derived values
@@ -227,6 +233,10 @@ class Settings:
     @property
     def admin_enabled(self) -> bool:
         return not is_placeholder(self.admin_token)
+
+    @property
+    def turso_configured(self) -> bool:
+        return bool(self.turso_database_url and self.turso_auth_token and not is_placeholder(self.turso_database_url))
 
 
 @lru_cache(maxsize=1)

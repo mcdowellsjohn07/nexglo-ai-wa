@@ -61,7 +61,16 @@ def build_services(
     settings = settings or get_settings()
     clock = clock if clock is not None else system_clock
     default_mode = getattr(settings, "auto_reply_mode", "selective")
-    store = Store(db_path or settings.db_path, settings.schema_path, clock=clock, default_auto_reply_mode=default_mode)
+    turso_url = settings.turso_database_url if not db_path else None
+    turso_token = settings.turso_auth_token if not db_path else None
+    store = Store(
+        db_path or settings.db_path,
+        settings.schema_path,
+        clock=clock,
+        default_auto_reply_mode=default_mode,
+        turso_url=turso_url,
+        turso_token=turso_token,
+    )
     kb = KnowledgeBase(settings.kb_dir)
     llm = llm if llm is not None else LLMClient(settings)
 

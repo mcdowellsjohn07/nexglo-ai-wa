@@ -193,6 +193,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="stat-row"><span>Auto-Reply Policy:</span> <span id="valAutoMode">-</span></div>
       <div class="stat-row"><span>LLM Provider:</span> <strong id="valProvider">-</strong></div>
       <div class="stat-row"><span>Active Model:</span> <span id="valModel" class="badge badge-blue">-</span></div>
+      <div class="stat-row"><span>Database Storage:</span> <span id="valDatabase">-</span></div>
       <div class="stat-row"><span>Signature Enforced:</span> <strong id="valSig">-</strong></div>
       
       <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
@@ -373,6 +374,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         document.getElementById("valBusiness").textContent = data.business || "NexgloTV";
         document.getElementById("valProvider").textContent = data.llm || "-";
         document.getElementById("valSig").textContent = data.signature_verification ? "Yes (Protected)" : "No";
+        const dbEl = document.getElementById("valDatabase");
+        if (dbEl) {
+          if (data.database === "turso") {
+            dbEl.innerHTML = '<span class="badge badge-green">🚀 Turso (Persistent Cloud)</span>';
+          } else {
+            dbEl.innerHTML = '<span class="badge badge-yellow">⚠️ Local SQLite (Ephemeral)</span>';
+          }
+        }
         document.getElementById("healthBadge").textContent = "Operational";
         document.getElementById("healthBadge").className = "badge badge-green";
       } catch (e) {
