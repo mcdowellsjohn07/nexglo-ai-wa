@@ -134,16 +134,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 
   <div class="grid">
-    <!-- Card 1: System Health -->
+    <!-- Card 1: System Health & Bot Controls -->
     <div class="card">
-      <h2>Bot Status <span id="healthBadge" class="badge badge-yellow">Checking...</span></h2>
+      <h2>Bot Status & Delivery <span id="healthBadge" class="badge badge-yellow">Checking...</span></h2>
       <div class="stat-row"><span>Business:</span> <strong id="valBusiness">NexgloTV</strong></div>
-      <div class="stat-row"><span>WhatsApp Mode:</span> <strong id="valWaMode">-</strong></div>
+      <div class="stat-row"><span>WhatsApp Delivery:</span> <span id="valWaMode">-</span></div>
+      <div class="stat-row"><span>Auto-Reply Policy:</span> <span id="valAutoMode">-</span></div>
       <div class="stat-row"><span>LLM Provider:</span> <strong id="valProvider">-</strong></div>
       <div class="stat-row"><span>Active Model:</span> <span id="valModel" class="badge badge-blue">-</span></div>
       <div class="stat-row"><span>Signature Enforced:</span> <strong id="valSig">-</strong></div>
-      <div style="margin-top: 14px;">
-        <button onclick="fetchHealth()" style="width: 100%;">Refresh Status</button>
+      
+      <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+        <button id="btnToggleDryRun" onclick="toggleDryRun()" style="width: 100%; font-weight: 600;">🛡️ Toggle Dry Run</button>
+        <button id="btnToggleAutoMode" onclick="toggleAutoReplyMode()" style="width: 100%; font-weight: 600; background: #374151;">⚙️ Toggle Policy</button>
+        <button onclick="fetchHealth(); fetchSettings();" style="width: 100%; font-size: 12px; background: transparent; border: 1px solid var(--border); color: var(--text-muted);">Refresh Status</button>
       </div>
     </div>
 
@@ -207,10 +211,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="card">
       <h2>
         <span>Chat: <span id="activeContact" style="color: var(--primary);">Select a conversation</span></span>
-        <div>
-          <button id="takeoverBtn" onclick="takeoverChat()" style="display: none; padding: 4px 10px; font-size: 12px; margin-right: 8px; background: var(--warning); color: #000; font-weight: 600;">Take Over (Pause Bot)</button>
-          <button id="resolveBtn" onclick="resolveChat()" class="btn-success" style="display: none; padding: 4px 10px; font-size: 12px; margin-right: 8px;">Resume Bot (Resolve)</button>
-          <button onclick="refreshActiveChat()" style="padding: 4px 10px; font-size: 12px; background: #374151;">Reload Chat</button>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="contactModeSwitchBtn" onclick="toggleContactMode()" style="display: none; padding: 6px 14px; font-size: 12px; font-weight: 700; border-radius: 20px; transition: all 0.2s; cursor: pointer;"></button>
+          <button onclick="refreshActiveChat()" style="padding: 6px 12px; font-size: 12px; background: #374151;">Reload Chat</button>
         </div>
       </h2>
       <div id="contactMeta" style="display: none; font-size: 12px; color: var(--text-muted); margin-bottom: 8px; padding: 6px 10px; background: #141b2d; border-radius: 6px;"></div>
@@ -228,6 +231,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     let currentWaId = null;
     let currentTab = 'all'; // 'all' | 'handoffs'
     let isFetchingChat = false;
+    let currentContactHandoff = false;
+    let currentDryRun = false;
+    let currentAutoMode = 'all';
 
     function getAuthHeader() {
       const token = localStorage.getItem("nexglo_admin_token") || document.getElementById("adminToken").value.trim();
@@ -239,6 +245,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       localStorage.setItem("nexglo_admin_token", token);
       alert("Admin Token saved!");
       fetchHealth();
+      fetchSettings();
       refreshCurrentTab();
       fetchModels();
     }
@@ -247,6 +254,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const saved = localStorage.getItem("nexglo_admin_token");
       if (saved) document.getElementById("adminToken").value = saved;
       fetchHealth();
+      fetchSettings();
       refreshCurrentTab();
       fetchModels();
 
@@ -256,6 +264,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (currentWaId) {
           fetchConversation(currentWaId, true);
         }
+        fetchSettings();
       }, 4000);
     };
 
@@ -286,7 +295,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const res = await fetch("/health");
         const data = await res.json();
         document.getElementById("valBusiness").textContent = data.business || "NexgloTV";
-        document.getElementById("valWaMode").textContent = data.dry_run ? "Dry Run (Offline)" : "LIVE (Connected to Meta)";
         document.getElementById("valProvider").textContent = data.llm || "-";
         document.getElementById("valSig").textContent = data.signature_verification ? "Yes (Protected)" : "No";
         document.getElementById("healthBadge").textContent = "Operational";
@@ -294,6 +302,115 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       } catch (e) {
         document.getElementById("healthBadge").textContent = "Error";
         document.getElementById("healthBadge").className = "badge badge-danger";
+      }
+    }
+
+    async function fetchSettings() {
+      try {
+        const res = await fetch("/admin/settings", { headers: getAuthHeader() });
+        if (!res.ok) return;
+        const data = await res.json();
+        currentDryRun = Boolean(data.dry_run);
+        currentAutoMode = data.auto_reply_mode || 'all';
+
+        // Update WhatsApp Delivery mode badge & button
+        const waModeEl = document.getElementById("valWaMode");
+        const dryRunBtn = document.getElementById("btnToggleDryRun");
+        if (currentDryRun) {
+          waModeEl.innerHTML = '<span class="badge badge-yellow">🛡️ DRY RUN (Muted)</span>';
+          dryRunBtn.textContent = "🚀 Switch to LIVE Mode (Enable WhatsApp Replies)";
+          dryRunBtn.className = "btn-success";
+          dryRunBtn.style.background = "var(--success)";
+          dryRunBtn.style.color = "#ffffff";
+          dryRunBtn.title = "Dry Run is ACTIVE. All bot outbound messages are muted globally. Click to go LIVE.";
+        } else {
+          waModeEl.innerHTML = '<span class="badge badge-green">🟢 LIVE (Sending)</span>';
+          dryRunBtn.textContent = "🛡️ Activate Dry Run (Mute All Outbox)";
+          dryRunBtn.className = "";
+          dryRunBtn.style.background = "#d97706";
+          dryRunBtn.style.color = "#ffffff";
+          dryRunBtn.title = "Bot is LIVE. Click to mute all bot replies globally.";
+        }
+
+        // Update Auto-Reply Policy badge & button
+        const autoModeEl = document.getElementById("valAutoMode");
+        const autoModeBtn = document.getElementById("btnToggleAutoMode");
+        if (currentAutoMode === "selective") {
+          autoModeEl.innerHTML = '<span class="badge badge-blue">Selective (Whitelist Only)</span>';
+          autoModeBtn.textContent = "Policy: Selective (Click to Auto-Reply All)";
+          autoModeBtn.style.background = "#2563eb";
+          autoModeBtn.title = "Only numbers switched to Bot will receive automated replies. New contacts start as Human.";
+        } else {
+          autoModeEl.innerHTML = '<span class="badge" style="background: rgba(156, 163, 175, 0.2); color: #9ca3af;">All Numbers (Default)</span>';
+          autoModeBtn.textContent = "Policy: All Numbers (Click for Selective)";
+          autoModeBtn.style.background = "#374151";
+          autoModeBtn.title = "All new conversations receive bot replies automatically.";
+        }
+      } catch (e) {}
+    }
+
+    async function toggleDryRun() {
+      const targetDryRun = !currentDryRun;
+      const confirmMsg = targetDryRun
+        ? "Activate Dry Run?\\n\\nThis will immediately MUTE and SILENCE all outgoing WhatsApp replies globally. Outgoing replies will only be logged locally."
+        : "Switch to LIVE Delivery?\\n\\nOutgoing messages from the bot and staff will be sent directly to real customer WhatsApp devices!";
+      if (!confirm(confirmMsg)) return;
+
+      const btn = document.getElementById("btnToggleDryRun");
+      const oldText = btn.textContent;
+      btn.textContent = "Updating...";
+      btn.disabled = true;
+      try {
+        const res = await fetch("/admin/settings/dry-run", {
+          method: "POST",
+          headers: getAuthHeader(),
+          body: JSON.stringify({ enabled: targetDryRun })
+        });
+        if (res.ok) {
+          await fetchSettings();
+          await fetchHealth();
+        } else {
+          const err = await res.json();
+          alert("Could not update Dry Run: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
+          btn.textContent = oldText;
+        }
+      } catch (e) {
+        alert("Error toggling dry run: " + e);
+        btn.textContent = oldText;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function toggleAutoReplyMode() {
+      const targetMode = currentAutoMode === "selective" ? "all" : "selective";
+      const confirmMsg = targetMode === "selective"
+        ? "Switch to Selective Mode?\\n\\nIn selective mode, new incoming customer chats start in Human mode (bot paused). The bot will ONLY reply to numbers that you explicitly switch to 🤖 Bot on this dashboard!"
+        : "Switch to All Numbers Mode?\\n\\nNew incoming chats will automatically receive bot replies (when Dry Run is off).";
+      if (!confirm(confirmMsg)) return;
+
+      const btn = document.getElementById("btnToggleAutoMode");
+      const oldText = btn.textContent;
+      btn.textContent = "Updating...";
+      btn.disabled = true;
+      try {
+        const res = await fetch("/admin/settings/auto-reply-mode", {
+          method: "POST",
+          headers: getAuthHeader(),
+          body: JSON.stringify({ mode: targetMode })
+        });
+        if (res.ok) {
+          await fetchSettings();
+        } else {
+          const err = await res.json();
+          alert("Could not update Auto-Reply Mode: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
+          btn.textContent = oldText;
+        }
+      } catch (e) {
+        alert("Error changing auto-reply mode: " + e);
+        btn.textContent = oldText;
+      } finally {
+        btn.disabled = false;
       }
     }
 
@@ -363,10 +480,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           const isActive = c.wa_id === currentWaId ? " active" : "";
           const name = c.profile_name || c.wa_id;
           const preview = c.last_message ? (c.last_message.length > 55 ? c.last_message.substring(0, 52) + "..." : c.last_message) : (c.state || "active");
-          const handoffBadge = c.handoff ? ' <span class="badge badge-yellow" style="font-size: 10px;">Handoff</span>' : '';
-          html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${c.handoff})">
+          const modeBadge = c.handoff 
+            ? ' <span class="badge badge-yellow" style="font-size: 10px;">👤 Human</span>' 
+            : ' <span class="badge badge-green" style="font-size: 10px;">🤖 Bot</span>';
+          html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${Boolean(c.handoff)})">
             <div style="display: flex; justify-content: space-between; align-items: baseline;">
-              <strong>${name}${handoffBadge}</strong>
+              <strong>${name}${modeBadge}</strong>
               <small style="font-size: 10px; color: var(--text-muted);">${c.updated_at ? c.updated_at.split('T')[0] : ''}</small>
             </div>
             <div style="font-size: 12px; color: #9ca3af; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${preview}</div>
@@ -393,7 +512,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           const isActive = h.wa_id === currentWaId ? " active" : "";
           const name = h.profile_name || h.wa_id;
           html += `<div class="queue-item${isActive}" onclick="selectContact('${h.wa_id}', '${name.replace(/'/g, "\\'")}', true)">
-            <strong>${name}</strong> <span class="badge badge-yellow" style="font-size: 10px;">Waiting</span><br>
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <strong>${name}</strong> <span class="badge badge-yellow" style="font-size: 10px;">👤 Waiting</span>
+            </div>
             <small style='color: #9ca3af;'>Reason: ${h.reason || "Human agent requested"}</small>
           </div>`;
         });
@@ -403,21 +524,61 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     function selectContact(waId, name, isHandoff = false) {
       currentWaId = waId;
+      currentContactHandoff = Boolean(isHandoff);
       document.getElementById("activeContact").textContent = (name || waId) + " (" + waId + ")";
-      updateHandoffButtons(isHandoff);
+      updateContactModeButton(currentContactHandoff);
       fetchConversation(waId, false);
       refreshCurrentTab(true);
     }
 
-    function updateHandoffButtons(isHandoff) {
-      const takeoverBtn = document.getElementById("takeoverBtn");
-      const resolveBtn = document.getElementById("resolveBtn");
+    function updateContactModeButton(isHandoff) {
+      const btn = document.getElementById("contactModeSwitchBtn");
+      if (!currentWaId) {
+        btn.style.display = "none";
+        return;
+      }
+      btn.style.display = "inline-block";
       if (isHandoff) {
-        takeoverBtn.style.display = "none";
-        resolveBtn.style.display = "inline-block";
+        btn.innerHTML = "👤 Human Staff (Bot Paused) &bull; <strong>Click to Switch to 🤖 Bot</strong>";
+        btn.style.background = "var(--success)";
+        btn.style.color = "#ffffff";
+        btn.title = "Bot is currently silenced for this customer. Click to activate the AI Bot for this number.";
       } else {
-        takeoverBtn.style.display = "inline-block";
-        resolveBtn.style.display = "none";
+        btn.innerHTML = "🤖 AI Bot Active &bull; <strong>Click to Switch to 👤 Human</strong>";
+        btn.style.background = "var(--warning)";
+        btn.style.color = "#000000";
+        btn.title = "AI Bot is actively answering this customer. Click to take over and pause the bot.";
+      }
+    }
+
+    async function toggleContactMode() {
+      if (!currentWaId) return;
+      const targetMode = currentContactHandoff ? "bot" : "human";
+      const btn = document.getElementById("contactModeSwitchBtn");
+      const oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = "Switching...";
+      try {
+        const res = await fetch("/admin/conversations/" + currentWaId + "/mode", {
+          method: "POST",
+          headers: getAuthHeader(),
+          body: JSON.stringify({ mode: targetMode })
+        });
+        if (res.ok) {
+          currentContactHandoff = (targetMode === "human");
+          updateContactModeButton(currentContactHandoff);
+          await fetchConversation(currentWaId, true);
+          refreshCurrentTab(true);
+        } else {
+          const err = await res.json();
+          alert("Could not switch mode: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
+          btn.innerHTML = oldHtml;
+        }
+      } catch (e) {
+        alert("Error switching mode: " + e);
+        btn.innerHTML = oldHtml;
+      } finally {
+        btn.disabled = false;
       }
     }
 
@@ -439,13 +600,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (!res.ok) { isFetchingChat = false; return; }
         const data = await res.json();
         const msgs = data.messages || data.transcript || [];
-        updateHandoffButtons(Boolean(data.handoff));
+        currentContactHandoff = Boolean(data.handoff);
+        updateContactModeButton(currentContactHandoff);
 
         // Meta info strip
         const metaDiv = document.getElementById("contactMeta");
-        const statusBadge = data.handoff 
-          ? '<span class="badge badge-yellow" style="margin-left: 6px;">HUMAN AGENT (Bot Paused)</span>' 
-          : '<span class="badge badge-green" style="margin-left: 6px;">AI BOT ACTIVE</span>';
+        const statusBadge = currentContactHandoff 
+          ? '<span class="badge badge-yellow" style="margin-left: 6px;">👤 HUMAN AGENT (Bot Paused)</span>' 
+          : '<span class="badge badge-green" style="margin-left: 6px;">🤖 AI BOT ACTIVE</span>';
         let metaHtml = `<strong>Status:</strong> ${data.state || 'active'} ${statusBadge} | <strong>Lang:</strong> ${(data.lang || 'en').toUpperCase()}`;
         if (data.draft && data.draft.quote) {
           metaHtml += ` | <strong>Draft Quote:</strong> Le ${data.draft.quote.toLocaleString()}`;
@@ -505,6 +667,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (res.ok) {
           input.value = "";
           fetchConversation(currentWaId, false);
+          refreshCurrentTab(true);
         } else {
           const err = await res.json();
           alert("Could not send reply: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
@@ -516,38 +679,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     async function takeoverChat() {
       if (!currentWaId) return;
-      try {
-        const res = await fetch("/admin/handoffs/" + currentWaId + "/takeover", {
-          method: "POST",
-          headers: getAuthHeader()
-        });
-        if (res.ok) {
-          alert("Conversation taken over! The AI bot is now paused for this customer. You can chat with them directly.");
-          refreshCurrentTab();
-          fetchConversation(currentWaId, false);
-        } else {
-          const err = await res.json();
-          alert("Could not take over conversation: " + (err.detail ? (err.detail.message || JSON.stringify(err.detail)) : "Error"));
-        }
-      } catch (e) {
-        alert("Error taking over: " + e);
-      }
+      currentContactHandoff = false;
+      await toggleContactMode();
     }
 
     async function resolveChat() {
       if (!currentWaId) return;
-      try {
-        await fetch("/admin/handoffs/" + currentWaId + "/resolve", {
-          method: "POST",
-          headers: getAuthHeader(),
-          body: JSON.stringify({ notify: true })
-        });
-        alert("Conversation resolved! Handed back to the AI bot.");
-        refreshCurrentTab();
-        fetchConversation(currentWaId, false);
-      } catch (e) {
-        alert("Error: " + e);
-      }
+      currentContactHandoff = true;
+      await toggleContactMode();
     }
 
     async function runAutomations() {

@@ -267,5 +267,71 @@ def test_takeover_and_resolve(client, services):
     assert resolve_res.json()["bot_active"] is True
 
 
+def test_admin_settings_get_and_set(client, services):
+    res = client.get("/admin/settings", headers=AUTH)
+    assert res.status_code == 200
+    data = res.json()
+    assert "dry_run" in data
+    assert "auto_reply_mode" in data
+    assert data["auto_reply_mode"] in ("all", "selective")
+
+    # Change auto_reply_mode to selective
+    set_res = client.post("/admin/settings/auto-reply-mode", json={"mode": "selective"}, headers=AUTH)
+    assert set_res.status_code == 200
+    assert set_res.json()["auto_reply_mode"] == "selective"
+
+    # Verify reflected in get_settings
+    after = client.get("/admin/settings", headers=AUTH).json()
+    assert after["auto_reply_mode"] == "selective"
+
+    # Toggle dry run to true
+    dry_res = client.post("/admin/settings/dry-run", json={"enabled": True}, headers=AUTH)
+    assert dry_res.status_code == 200
+    assert dry_res.json()["dry_run"] is True
+
+
+def test_contact_mode_switch(client, services):
+    wa_id = "23276000003"
+    say(services, "Hello bot", wa_id=wa_id, name="Ibrahim")
+
+    # Switch to human
+    to_human = client.post(f"/admin/conversations/{wa_id}/mode", json={"mode": "human"}, headers=AUTH)
+    assert to_human.status_code == 200
+    assert to_human.json()["handoff"] is True
+    assert to_human.json()["bot_paused"] is True
+
+    # Switch back to bot
+    to_bot = client.post(f"/admin/conversations/{wa_id}/mode", json={"mode": "bot"}, headers=AUTH)
+    assert to_bot.status_code == 200
+    assert to_bot.json()["handoff"] is False
+    assert to_bot.json()["bot_active"] is True
+
+
+def test_selective_mode_new_customer_and_dry_run(client, services, wa):
+    # Set to selective mode
+    client.post("/admin/settings/auto-reply-mode", json={"mode": "selective"}, headers=AUTH)
+
+    wa.sent.clear()
+    new_user = "23276000004"
+    say(services, "Hello I need info", wa_id=new_user, name="Fatmata")
+
+    # Because selective mode is active, new contact starts with handoff=True
+    conv = services.store.get_conversation(new_user)
+    assert conv.handoff is True
+
+    # Bot stays silent (no outbound messages sent to customer)
+    assert len(wa.outbound()) == 0
+
+    # Staff toggles contact to Bot mode
+    client.post(f"/admin/conversations/{new_user}/mode", json={"mode": "bot"}, headers=AUTH)
+    conv = services.store.get_conversation(new_user)
+    assert conv.handoff is False
+
+    # Now when user messages, bot replies
+    say(services, "Hi again", wa_id=new_user, name="Fatmata")
+    assert len(wa.outbound()) > 0
+
+
+
 
 

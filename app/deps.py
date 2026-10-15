@@ -94,9 +94,7 @@ def build_services(
     )
 
     if wa is None:
-        if transport is None and settings.dry_run:
-            transport = DryRunTransport(store)
-        wa = WhatsAppClient(settings, transport=transport, http_client=http_client)
+        wa = WhatsAppClient(settings, transport=transport, http_client=http_client, store=store)
 
     # Update media with wa client
     media.wa = wa

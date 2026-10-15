@@ -77,12 +77,18 @@ def create_app(services: Optional[Services] = None, settings: Optional[Settings]
     @app.get("/health")
     async def health() -> dict:
         s = settings
+        wa_dry = s.dry_run
+        try:
+            svc = get_services()
+            wa_dry = svc.wa.dry_run
+        except Exception:
+            pass
         return {
             "status": "ok",
             "business": s.business_name,
             "llm": f"{s.llm_provider}" if s.llm_configured else "offline",
-            "whatsapp": "dry_run" if s.dry_run else "live",
-            "dry_run": s.dry_run,
+            "whatsapp": "dry_run" if wa_dry else "live",
+            "dry_run": wa_dry,
             "signature_verification": s.signature_enforced,
             "admin_api": s.admin_enabled,
         }

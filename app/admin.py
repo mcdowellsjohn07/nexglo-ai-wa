@@ -103,6 +103,42 @@ class RunAutomationsIn(BaseModel):
     renewal_days_before: int = Field(default=3, ge=0, le=90)
 
 
+class DryRunIn(BaseModel):
+    enabled: bool
+
+
+class AutoReplyModeIn(BaseModel):
+    mode: str = Field(pattern="^(all|selective)$")
+
+
+class ContactModeIn(BaseModel):
+    mode: str = Field(pattern="^(bot|human|ai|staff)$")
+
+
+@router.get("/settings")
+def get_settings(desk: StaffDesk = Depends(staff_desk)) -> dict:
+    return {
+        "dry_run": desk.services.wa.dry_run,
+        "auto_reply_mode": desk.store.get_setting("auto_reply_mode", "all"),
+        "whatsapp_configured": desk.settings.whatsapp_configured,
+    }
+
+
+@router.post("/settings/dry-run")
+def set_dry_run(body: DryRunIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    try:
+        new_val = desk.services.wa.set_dry_run(body.enabled)
+        return {"status": "success", "dry_run": new_val}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/settings/auto-reply-mode")
+def set_auto_reply_mode(body: AutoReplyModeIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    desk.store.set_setting("auto_reply_mode", body.mode)
+    return {"status": "success", "auto_reply_mode": body.mode}
+
+
 @router.get("/handoffs")
 def list_handoffs(last: int = Query(5, ge=0, le=50), desk: StaffDesk = Depends(staff_desk)) -> dict:
     items = desk.queue(last_messages=last)
@@ -118,6 +154,11 @@ def list_conversations(limit: int = Query(50, ge=1, le=500), desk: StaffDesk = D
 @router.get("/conversations/{wa_id}")
 def get_conversation(wa_id: str, limit: int = Query(50, ge=1, le=500), desk: StaffDesk = Depends(staff_desk)) -> dict:
     return _run(desk.conversation, wa_id, limit=limit)
+
+
+@router.post("/conversations/{wa_id}/mode")
+def set_contact_mode(wa_id: str, body: ContactModeIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    return _run(desk.set_contact_mode, wa_id, body.mode)
 
 
 @router.post("/conversations/{wa_id}/reply")

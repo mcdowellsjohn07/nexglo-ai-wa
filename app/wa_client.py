@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import itertools
 import logging
-from typing import Callable, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 import httpx
 
@@ -101,28 +101,68 @@ class WhatsAppClient:
         settings: Settings,
         transport: Optional[Transport] = None,
         http_client: Optional[httpx.Client] = None,
+        store: Optional[Any] = None,
     ):
         self.settings = settings
-        if transport is None:
-            if settings.dry_run:
-                # No outbox to write to: just log. app.deps.build_services wires
-                # a DryRunTransport backed by SQLite instead.
-                transport = CallbackTransport(
+        self.store = store
+        self._dry_run_override: Optional[bool] = None
+        self._graph_transport: Optional[Transport] = None
+        self._dry_transport: Optional[Transport] = None
+
+        if transport is not None:
+            self.transport = transport
+            if isinstance(transport, GraphTransport):
+                self._graph_transport = transport
+            else:
+                self._dry_transport = transport
+        else:
+            if settings.whatsapp_configured:
+                self._graph_transport = GraphTransport(settings, http_client)
+            if store is not None:
+                self._dry_transport = DryRunTransport(store)
+            else:
+                self._dry_transport = CallbackTransport(
                     lambda payload: log.warning(
                         "WhatsApp not configured (dry-run); would send: %s", payload
                     )
                 )
-            else:
-                transport = GraphTransport(settings, http_client)
-        self.transport = transport
+            self.transport = (
+                self._dry_transport if settings.dry_run else (self._graph_transport or self._dry_transport)
+            )
 
     @property
     def dry_run(self) -> bool:
+        if self._dry_run_override is not None:
+            return self._dry_run_override
+        if self.store and hasattr(self.store, "get_setting"):
+            db_val = self.store.get_setting("dry_run", "")
+            if db_val in ("1", "true"):
+                return True
+            if db_val in ("0", "false"):
+                return not self.settings.whatsapp_configured
         return not isinstance(self.transport, GraphTransport)
+
+    def set_dry_run(self, enabled: bool) -> bool:
+        """Switch between Dry Run (local outbox) and LIVE (graph.facebook.com) dynamically."""
+        if not enabled and not self.settings.whatsapp_configured:
+            # Cannot enable LIVE if credentials are not configured
+            raise ValueError("Cannot disable dry-run: WhatsApp credentials (token/phone_id) are not configured.")
+        self._dry_run_override = enabled
+        if self.store and hasattr(self.store, "set_setting"):
+            self.store.set_setting("dry_run", "true" if enabled else "false")
+        if enabled:
+            if self._dry_transport:
+                self.transport = self._dry_transport
+        else:
+            if self._graph_transport:
+                self.transport = self._graph_transport
+        log.info("Switched WhatsApp delivery mode: dry_run=%s", self.dry_run)
+        return self.dry_run
 
     # --------------------------------------------------------------- senders
     def send_payload(self, payload: dict) -> Optional[dict]:
-        return self.transport.deliver(payload)
+        active_transport = self._dry_transport if self.dry_run and self._dry_transport else self.transport
+        return active_transport.deliver(payload)
 
     def send_text(self, to: str, body: str, preview_url: bool = False) -> Optional[dict]:
         return self.send_payload(P.text_payload(to, body, preview_url))

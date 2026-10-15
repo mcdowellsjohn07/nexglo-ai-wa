@@ -196,7 +196,19 @@ class StaffDesk:
         self.store.set_state(wa_id, State.HUMAN)
         self.store.clear_draft(wa_id)
         self.store.create_handoff(wa_id, "staff_takeover")
-        return {"wa_id": wa_id, "handoff": True, "state": "human", "bot_paused": True}
+        return {"wa_id": wa_id, "mode": "human", "handoff": True, "state": "human", "bot_paused": True, "bot_active": False}
+
+    def set_contact_mode(self, wa_id: str, mode: str) -> dict:
+        """Switch a specific contact between 'bot' (AI active) and 'human' (bot paused)."""
+        clean_mode = (mode or "").strip().lower()
+        if clean_mode in ("bot", "ai", "auto"):
+            res = self.resolve(wa_id, notify=False)
+            res.update({"mode": "bot", "handoff": False, "bot_active": True})
+            return res
+        elif clean_mode in ("human", "staff", "manual", "pause"):
+            return self.takeover(wa_id)
+        else:
+            raise StaffError(422, "invalid_mode", f"Unknown mode {mode!r}; expected 'bot' or 'human'.")
 
     def resolve(self, wa_id: str, notify: bool = True) -> dict:
         conv = self._conversation(wa_id)

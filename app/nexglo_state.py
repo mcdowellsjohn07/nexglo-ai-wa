@@ -234,12 +234,27 @@ class Store(Database):
     """SQLite-backed conversation store for NexgloTV."""
 
     # ---------------------------------------------------------- conversations
+    def get_setting(self, key: str, default: str = "") -> str:
+        with self._connect() as con:
+            con.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)")
+            row = con.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._connect() as con:
+            con.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)")
+            con.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", (key, value))
+
     def ensure_conversation(self, wa_id: str, profile_name: Optional[str] = None) -> None:
+        auto_mode = self.get_setting("auto_reply_mode", "all")
+        # In 'selective' mode, new incoming contacts start in Human mode (bot paused)
+        initial_handoff = 1 if auto_mode == "selective" else 0
+        initial_state = State.HUMAN if initial_handoff else State.IDLE
         with self._connect() as con:
             con.execute(
-                "INSERT OR IGNORE INTO conversations (wa_id, profile_name, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?)",
-                (wa_id, profile_name, self._ts(), self._ts()),
+                "INSERT OR IGNORE INTO conversations (wa_id, profile_name, state, handoff, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (wa_id, profile_name, initial_state, initial_handoff, self._ts(), self._ts()),
             )
             if profile_name:
                 con.execute(
