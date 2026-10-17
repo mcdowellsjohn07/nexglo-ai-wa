@@ -159,20 +159,27 @@ class StaffDesk:
                     "last_message_at": r.get("last_message_at") or r.get("updated_at"),
                 }
                 items.append(item)
+            items.sort(
+                key=lambda x: str(x.get("last_message_at") or x.get("updated_at") or ""),
+                reverse=True,
+            )
             return items
 
         # Fallback for mock stores in tests
         all_convs = self.store.list_conversations()
-        all_convs.sort(key=lambda c: c.updated_at or "", reverse=True)
         items = []
-        for conv in all_convs[:limit]:
+        for conv in all_convs:
             item = self._summary(conv)
             last_msgs = self.store.transcript(conv.wa_id, limit=1)
             last_entry = last_msgs[-1] if last_msgs else {}
             item["last_message"] = last_entry.get("content") or last_entry.get("body") or ""
-            item["last_message_at"] = last_entry.get("created_at") or conv.updated_at
+            item["last_message_at"] = last_entry.get("created_at") or conv.last_user_at or conv.updated_at
             items.append(item)
-        return items
+        items.sort(
+            key=lambda x: str(x.get("last_message_at") or x.get("updated_at") or ""),
+            reverse=True,
+        )
+        return items[:limit]
 
     def conversation(self, wa_id: str, limit: int = 50) -> dict:
         self.store.ensure_conversation(wa_id)

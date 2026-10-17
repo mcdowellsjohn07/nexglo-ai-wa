@@ -277,3 +277,98 @@ def test_agent_reseller_chat_flow():
     assert "Direct Sale Recorded" in last_reply
     assert "Expected Commission" in last_reply and "Le36" in last_reply
     assert "Pending Finance Verification" in last_reply
+
+
+def test_reseller_security_phone_spoof_rejected(manager):
+    """An attacker or unknown number cannot claim a reseller identity merely by texting the code."""
+    # Ssender is a random number attempting to claim RSL-PILOT01
+    attacker_phone = "23279999999"
+    reseller = manager.identify_reseller(attacker_phone, code_hint="RSL-PILOT01")
+    assert reseller is None
+
+    # Even subsequent calls from attacker must still be None
+    assert manager.identify_reseller(attacker_phone) is None
+
+
+def test_reseller_phone_number_formats_recognized(manager):
+    """Sierra Leone local (076...), standard (+23276...), and raw (23276...) formats all resolve."""
+    # Registered phone is 23276000001
+    assert manager.identify_reseller("23276000001") is not None
+    assert manager.identify_reseller("+23276000001") is not None
+    assert manager.identify_reseller("076000001") is not None
+
+
+def test_validate_sale_inputs_rules():
+    from app.reseller_bot import validate_sale_inputs
+
+    # Valid inputs
+    ok, err = validate_sale_inputs("076123456", "Abu Sesay", 1, 1, "Orange Money", "REF123")
+    assert ok is True and err is None
+
+    # Invalid duration (2 months not in 1, 3, 6, 12)
+    ok, err = validate_sale_inputs("076123456", "Abu Sesay", 2, 1, "Orange Money", "REF123")
+    assert ok is False and "duration" in err.lower()
+
+    # Invalid devices (6 devices exceeds max 5)
+    ok, err = validate_sale_inputs("076123456", "Abu Sesay", 1, 6, "Orange Money", "REF123")
+    assert ok is False and "device" in err.lower()
+
+    # Missing name for new sale
+    ok, err = validate_sale_inputs("076123456", "", 1, 1, "Orange Money", "REF123")
+    assert ok is False and "name" in err.lower()
+
+    # Short reference
+    ok, err = validate_sale_inputs("076123456", "Abu Sesay", 1, 1, "Orange Money", "1")
+    assert ok is False and "reference" in err.lower()
+
+
+def test_reseller_resubscription_and_customer_creation(manager):
+    from app.crm_sheets import MockCRMProvider
+    from app.reseller_bot import parse_direct_sale_text
+
+    mock_crm = MockCRMProvider()
+    manager.crm_provider = mock_crm
+    reseller = manager.identify_reseller("23276000001")
+
+    # 1. First-time direct sale: creates Customer in 03_Customers
+    res1 = manager.process_direct_sale(
+        reseller=reseller,
+        customer_phone="076554433",
+        customer_name="Kadiatu Bangura",
+        months=1,
+        devices=1,
+        payment_method="Orange Money",
+        payment_reference="TX10001",
+        is_renewal=False,
+    )
+    assert res1["success"] is True
+    assert res1["is_renewal"] is False
+    assert res1["renewal_count"] == 0
+
+    # Verify Customer was created in CRM
+    cust = mock_crm.get_customer_by_wa_id("+23276554433")
+    assert cust is not None
+    assert cust.name == "Kadiatu Bangura"
+
+    # 2. Resubscription / Renewal for the same customer
+    parsed_renew = parse_direct_sale_text("RENEW 076554433, 3m 2dev, Orange Money, TX10002")
+    assert parsed_renew is not None
+    assert parsed_renew["is_renewal"] is True
+    assert parsed_renew["months"] == 3
+    assert parsed_renew["devices"] == 2
+
+    res2 = manager.process_direct_sale(
+        reseller=reseller,
+        customer_phone=parsed_renew["customer_phone"],
+        customer_name=parsed_renew["customer_name"],
+        months=parsed_renew["months"],
+        devices=parsed_renew["devices"],
+        payment_method=parsed_renew["payment_method"],
+        payment_reference=parsed_renew["payment_reference"],
+        is_renewal=True,
+    )
+    assert res2["success"] is True
+    assert res2["is_renewal"] is True
+    assert res2["renewal_count"] == 1
+    assert res2["amount_due"] == 900
+    assert res2["expected_commission"] == 180

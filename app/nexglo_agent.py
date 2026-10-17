@@ -190,6 +190,7 @@ class Agent:
         media: MediaService,
         clock=None,
         reseller_mgr=None,
+        admin_bot=None,
     ):
         self.settings = settings
         self.wa = wa
@@ -201,8 +202,19 @@ class Agent:
         self.clock = clock
         if reseller_mgr is None:
             from .reseller_bot import ResellerBotManager
-            reseller_mgr = ResellerBotManager(getattr(crm, "provider", None) if crm else None)
+            reseller_mgr = ResellerBotManager(getattr(crm, "provider", None) if crm else None, store=store)
         self.reseller_mgr = reseller_mgr
+        if admin_bot is None:
+            from .admin_bot import AdminBotManager
+            admin_bot = AdminBotManager(
+                settings=settings,
+                store=store,
+                llm=llm,
+                wa=wa,
+                crm=crm,
+                reseller_mgr=reseller_mgr,
+            )
+        self.admin_bot = admin_bot
         try:
             self.tz = ZoneInfo(settings.timezone)
         except Exception:
@@ -259,6 +271,11 @@ class Agent:
             return
 
         self.wa.mark_read(msg.message_id)
+
+        # Admin WhatsApp Command Engine: Check if sender is verified admin and command
+        if text and hasattr(self, "admin_bot") and self.admin_bot:
+            if self.admin_bot.handle_if_admin(conv, text):
+                return
 
         # Language detection (only free text)
         if text and not payload_id:
@@ -1066,15 +1083,16 @@ class Agent:
                 )
                 return True
 
-        if upper.startswith("DIRECT SALE ") or upper.startswith("SALE "):
+        if upper.startswith("DIRECT SALE ") or upper.startswith("SALE ") or upper.startswith("RENEW ") or upper.startswith("RESUBSCRIBE "):
             reseller = self.reseller_mgr.identify_reseller(wa_id)
             if reseller:
-                return self._handle_fast_direct_sale(conv, reseller, text)
+                is_renewal = upper.startswith("RENEW ") or upper.startswith("RESUBSCRIBE ")
+                return self._handle_fast_direct_sale(conv, reseller, text, is_renewal=is_renewal)
             else:
                 self._send_text(
                     wa_id,
                     "🔒 *Restricted Command*\n\n"
-                    "Direct sale commission reports can only be submitted by authorized NexgloTV Reseller Partners.\n"
+                    "Reseller sales and resubscription reports can only be submitted by authorized NexgloTV Reseller Partners.\n"
                     "If you are a customer looking to subscribe, reply with *MENU* to view packages!",
                 )
                 return True
@@ -1201,18 +1219,37 @@ class Agent:
             devices=parsed["devices"],
             payment_method=parsed["payment_method"],
             payment_reference=parsed["payment_reference"],
+            is_renewal=parsed.get("is_renewal", False),
         )
-        msg = (
-            f"✅ *Direct Sale Recorded Successfully!* ({reseller.reseller_code})\n\n"
-            f"👤 *Customer:* {res['customer_name']} ({res['customer_phone']})\n"
-            f"📺 *Package:* {res['package']}\n"
-            f"💵 *Amount Due:* Le{res['amount_due']:,}\n"
-            f"💳 *Method / Ref:* {res['payment_method']} · `{res['payment_reference']}`\n"
-            f"🎁 *Expected Commission (20%):* *Le{res['expected_commission']:,}*\n\n"
-            "⏳ *Status:* Pending Finance Verification in Lark. "
-            "Once confirmed, the customer line is activated and Le"
-            f"{res['expected_commission']:,} will be credited to your commission balance."
-        )
+        if not res.get("success"):
+            self._send_text(conv.wa_id, res.get("message") or "❌ Validation error recording sale.")
+            self._send_reseller_menu(conv, reseller)
+            return True
+
+        if res.get("is_renewal"):
+            msg = (
+                f"🎉 *Customer Subscription Renewed!* ({reseller.reseller_code})\n\n"
+                f"👤 *Customer:* {res['customer_name']} ({res['customer_phone']})\n"
+                f"📺 *Renewed Package:* {res['package']}\n"
+                f"💵 *Amount Due:* Le{res['amount_due']:,}\n"
+                f"💳 *Method / Ref:* {res['payment_method']} · `{res['payment_reference']}`\n"
+                f"🎁 *Expected Commission (20%):* *Le{res['expected_commission']:,}*\n"
+                f"🔄 *Total Renewals:* {res['renewal_count']}\n\n"
+                "⏳ *Status:* Updated in Lark Base Customers (Pending Finance Verification). "
+                f"Le{res['expected_commission']:,} will be credited to your commission balance once verified."
+            )
+        else:
+            msg = (
+                f"✅ *Direct Sale Recorded Successfully!* ({reseller.reseller_code})\n\n"
+                f"👤 *Customer:* {res['customer_name']} ({res['customer_phone']})\n"
+                f"📺 *Package:* {res['package']}\n"
+                f"💵 *Amount Due:* Le{res['amount_due']:,}\n"
+                f"💳 *Method / Ref:* {res['payment_method']} · `{res['payment_reference']}`\n"
+                f"🎁 *Expected Commission (20%):* *Le{res['expected_commission']:,}*\n\n"
+                "⏳ *Status:* Added to Lark Base Customers (Pending Finance Verification). "
+                "Once confirmed, the customer line is activated and Le"
+                f"{res['expected_commission']:,} will be credited to your commission balance."
+            )
         self._send_text(conv.wa_id, msg)
         self._send_reseller_menu(conv, reseller)
         return True
@@ -1301,11 +1338,14 @@ class Agent:
         self._send_text(wa_id, msg)
         self._send_reseller_menu(conv, reseller)
 
-    def _handle_fast_direct_sale(self, conv: Conversation, reseller, text: str) -> bool:
+    def _handle_fast_direct_sale(self, conv: Conversation, reseller, text: str, is_renewal: bool = False) -> bool:
         from .reseller_bot import parse_direct_sale_text
-        parsed = parse_direct_sale_text(text)
+        parsed = parse_direct_sale_text(text, is_renewal=is_renewal)
         if not parsed:
-            self._send_text(conv.wa_id, "Format: `DIRECT SALE <phone> <name> <package> <method> <ref>`\nExample: `DIRECT SALE 076123456 Foday Koroma 1m 1dev OrangeMoney OM1234`")
+            if is_renewal:
+                self._send_text(conv.wa_id, "Format: `RENEW <phone> <package> <method> <ref>`\nExample: `RENEW 076123456 1m 1dev OrangeMoney OM1234`")
+            else:
+                self._send_text(conv.wa_id, "Format: `DIRECT SALE <phone> <name> <package> <method> <ref>`\nExample: `DIRECT SALE 076123456 Foday Koroma 1m 1dev OrangeMoney OM1234`")
             return True
         res = self.reseller_mgr.process_direct_sale(
             reseller=reseller,
@@ -1315,15 +1355,31 @@ class Agent:
             devices=parsed["devices"],
             payment_method=parsed["payment_method"],
             payment_reference=parsed["payment_reference"],
+            is_renewal=parsed.get("is_renewal", is_renewal),
         )
-        msg = (
-            f"✅ *Direct Sale Recorded!* ({reseller.reseller_code})\n"
-            f"• Customer: {res['customer_name']} ({res['customer_phone']})\n"
-            f"• Package: {res['package']} (Le{res['amount_due']:,})\n"
-            f"• Ref: `{res['payment_reference']}`\n"
-            f"• Expected Commission (20%): *Le{res['expected_commission']:,}*\n"
-            "⏳ Status: Pending Finance Verification in Lark."
-        )
+        if not res.get("success"):
+            self._send_text(conv.wa_id, res.get("message") or "❌ Validation error recording sale.")
+            return True
+
+        if res.get("is_renewal"):
+            msg = (
+                f"🎉 *Customer Subscription Renewed!* ({reseller.reseller_code})\n"
+                f"• Customer: {res['customer_name']} ({res['customer_phone']})\n"
+                f"• Package: {res['package']} (Le{res['amount_due']:,})\n"
+                f"• Ref: `{res['payment_reference']}`\n"
+                f"• Expected Commission (20%): *Le{res['expected_commission']:,}*\n"
+                f"• Total Renewals: {res['renewal_count']}\n"
+                "⏳ Status: Updated in Lark Base Customers (Pending Finance Verification)."
+            )
+        else:
+            msg = (
+                f"✅ *Direct Sale Recorded!* ({reseller.reseller_code})\n"
+                f"• Customer: {res['customer_name']} ({res['customer_phone']})\n"
+                f"• Package: {res['package']} (Le{res['amount_due']:,})\n"
+                f"• Ref: `{res['payment_reference']}`\n"
+                f"• Expected Commission (20%): *Le{res['expected_commission']:,}*\n"
+                "⏳ Status: Added to Lark Base Customers (Pending Finance Verification)."
+            )
         self._send_text(conv.wa_id, msg)
         return True
 

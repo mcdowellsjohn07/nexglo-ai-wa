@@ -370,7 +370,7 @@ class Store(Database):
                     FROM messages
                     WHERE id IN (SELECT MAX(id) FROM messages GROUP BY wa_id)
                 ) m ON m.wa_id = c.wa_id
-                ORDER BY c.updated_at DESC
+                ORDER BY COALESCE(m.created_at, c.last_user_at, c.updated_at) DESC
                 LIMIT ?
                 """,
                 (limit,),

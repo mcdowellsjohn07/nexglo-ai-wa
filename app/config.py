@@ -95,6 +95,7 @@ class Settings:
 
     # --- Staff console ---
     admin_token: str = ""
+    admin_phone_numbers: str = ""
 
     # --- Local audio transcription (optional) ---
     whisper_model: str = "base"
@@ -170,6 +171,7 @@ class Settings:
             timezone=get("BUSINESS_TIMEZONE", "Africa/Freetown"),
             currency_label=get("CURRENCY_LABEL", "Le"),
             admin_token=get("ADMIN_TOKEN"),
+            admin_phone_numbers=get("ADMIN_PHONE_NUMBERS"),
             whisper_model=get("WHISPER_MODEL", "base"),
             crm_provider=get("CRM_PROVIDER", "mock"),
             google_sheet_id=get("GOOGLE_SHEET_ID"),

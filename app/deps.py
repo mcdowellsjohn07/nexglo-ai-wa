@@ -45,6 +45,7 @@ class Services:
     clock: Clock
     automations: Optional[AutomationRunner] = None
     reseller_mgr: Optional[Any] = None
+    admin_bot: Optional[Any] = None
 
 
 def build_services(
@@ -128,7 +129,17 @@ def build_services(
                 log.warning("Could not restore dry_run setting: %s", exc)
 
     from .reseller_bot import ResellerBotManager
-    reseller_mgr = ResellerBotManager(getattr(crm, "provider", None))
+    reseller_mgr = ResellerBotManager(getattr(crm, "provider", None), store=store)
+
+    from .admin_bot import AdminBotManager
+    admin_bot = AdminBotManager(
+        settings=settings,
+        store=store,
+        llm=llm,
+        wa=wa,
+        crm=crm,
+        reseller_mgr=reseller_mgr,
+    )
 
     agent = Agent(
         settings=settings,
@@ -140,6 +151,7 @@ def build_services(
         media=media,
         clock=clock,
         reseller_mgr=reseller_mgr,
+        admin_bot=admin_bot,
     )
     svc = Services(
         settings=settings,
@@ -152,6 +164,7 @@ def build_services(
         media=media,
         clock=clock,
         reseller_mgr=reseller_mgr,
+        admin_bot=admin_bot,
     )
     svc.automations = AutomationRunner(svc)
     return svc

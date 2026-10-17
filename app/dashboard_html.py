@@ -652,6 +652,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       renderConversationList(filtered);
     }
 
+    function formatChatTimestamp(ts) {
+      if (!ts) return "";
+      try {
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return ts.split('T')[0] || ts;
+        const now = new Date();
+        const isToday = d.toDateString() === now.toDateString();
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        if (isToday) return timeStr;
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return `${monthNames[d.getMonth()]} ${d.getDate()} ${timeStr}`;
+      } catch (e) {
+        return ts.split('T')[0] || ts;
+      }
+    }
+
     function renderConversationList(convs) {
       const list = document.getElementById("queueList");
       const dispEl = document.getElementById("displayedChatsCount");
@@ -676,10 +692,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const modeBadge = isHandoff 
           ? ' <span class="badge badge-yellow" style="font-size: 10px;">👤 Human</span>' 
           : ' <span class="badge badge-green" style="font-size: 10px;">🤖 Bot</span>';
+        const tsFormatted = formatChatTimestamp(c.last_message_at || c.updated_at);
         html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${isHandoff})">
           <div style="display: flex; justify-content: space-between; align-items: baseline;">
             <strong>${name}${modeBadge}</strong>
-            <small style="font-size: 10px; color: var(--text-muted);">${c.updated_at ? c.updated_at.split('T')[0] : ''}</small>
+            <small style="font-size: 10px; color: var(--text-muted);">${tsFormatted}</small>
           </div>
           <div style="font-size: 12px; color: #9ca3af; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${preview}</div>
         </div>`;
@@ -705,6 +722,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (!res.ok) return;
         const data = await res.json();
         allLoadedConversations = data.conversations || [];
+        // Strictly sort by latest message received timestamp descending (most recent at top)
+        allLoadedConversations.sort((a, b) => {
+          const tA = a.last_message_at || a.last_user_at || a.updated_at || "";
+          const tB = b.last_message_at || b.last_user_at || b.updated_at || "";
+          return tB.localeCompare(tA);
+        });
         filterConversations();
 
         // Also fetch handoff count in background
