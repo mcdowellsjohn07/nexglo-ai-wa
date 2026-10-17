@@ -353,6 +353,30 @@ class Store(Database):
             convs = [c for c in convs if c.state in states]
         return convs
 
+    def list_recent_conversations_with_summary(self, limit: int = 250) -> list[dict]:
+        """Fetch conversations with their latest message in a single batch query (no N+1)."""
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT 
+                    c.wa_id, c.state, c.lang, c.handoff, c.profile_name, c.opted_out,
+                    c.last_user_at, c.is_existing_customer, c.customer_id, c.lead_id,
+                    c.updated_at,
+                    m.content AS last_message,
+                    m.created_at AS last_message_at
+                FROM conversations c
+                LEFT JOIN (
+                    SELECT wa_id, content, created_at
+                    FROM messages
+                    WHERE id IN (SELECT MAX(id) FROM messages GROUP BY wa_id)
+                ) m ON m.wa_id = c.wa_id
+                ORDER BY c.updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def conversation_exists(self, wa_id: str) -> bool:
         with self._connect() as con:
             row = con.execute("SELECT 1 FROM conversations WHERE wa_id = ?", (wa_id,)).fetchone()

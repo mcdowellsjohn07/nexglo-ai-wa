@@ -240,6 +240,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
       <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
         <button onclick="downloadBackup()" class="btn-success" style="width: 100%; background: #059669; font-weight: 600;">📥 Download Database Backup (JSON)</button>
+        <button onclick="syncLarkCRM()" style="width: 100%; background: #2563eb; color: #fff; font-weight: 600;">🔄 Sync WhatsApp to Lark CRM</button>
         <button onclick="runAutomations()" style="width: 100%; background: #374151;">Trigger Automations Run</button>
       </div>
     </div>
@@ -248,9 +249,25 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <!-- Live Operations & Conversations Desk -->
   <div class="grid desk-grid">
     <div class="card" id="queueListCard">
-      <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+      <div style="display: flex; gap: 8px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
         <button id="tabAllChats" onclick="switchTab('all')" style="flex: 1; padding: 6px 10px; font-size: 13px; background: var(--primary);">All Chats (<span id="chatsCount">0</span>)</button>
         <button id="tabHandoffs" onclick="switchTab('handoffs')" style="flex: 1; padding: 6px 10px; font-size: 13px; background: #1f293d;">Handoffs (<span id="queueCount">0</span>)</button>
+      </div>
+      <!-- Search & Limit Controls -->
+      <div style="margin-bottom: 8px;">
+        <input type="text" id="chatSearchInput" placeholder="🔍 Search phone or name..." oninput="filterConversations()" style="width: 100%; box-sizing: border-box; font-size: 13px; padding: 6px 10px; border-radius: 6px; background: #141b2d; border: 1px solid var(--border); color: #fff;">
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--text-muted);">
+        <span>Showing <strong id="displayedChatsCount" style="color: #fff;">0</strong> of <strong id="totalChatsCount" style="color: #fff;">0</strong></span>
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <span>Show:</span>
+          <select id="chatLimitSelect" onchange="fetchAllConversations()" style="padding: 2px 6px; font-size: 12px; background: #141b2d; border: 1px solid var(--border); color: #fff; border-radius: 4px;">
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="250" selected>250</option>
+            <option value="500">500 (All)</option>
+          </select>
+        </div>
       </div>
       <div id="queueList" class="queue-list">
         <p style="color: var(--text-muted); font-size: 13px; padding: 8px;">Loading chats...</p>
@@ -283,12 +300,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 
   <script>
+    const SERVER_ADMIN_TOKEN = "__SERVER_ADMIN_TOKEN__";
     let currentWaId = null;
     let currentTab = 'all'; // 'all' | 'handoffs'
     let isFetchingChat = false;
     let currentContactHandoff = false;
     let currentDryRun = false;
     let currentAutoMode = 'all';
+    let allLoadedConversations = [];
 
     function getSavedToken() {
       try {
@@ -302,7 +321,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           } catch (e) {}
           return cleanToken;
         }
-        return localStorage.getItem("nexglo_admin_token") || "";
+        const stored = localStorage.getItem("nexglo_admin_token");
+        if (stored) return stored;
+        if (SERVER_ADMIN_TOKEN && !SERVER_ADMIN_TOKEN.startsWith("__")) {
+          setSavedToken(SERVER_ADMIN_TOKEN);
+          return SERVER_ADMIN_TOKEN;
+        }
+        return "";
       } catch (e) {
         return "";
       }
@@ -614,9 +639,60 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
     }
 
+    function filterConversations() {
+      const q = (document.getElementById("chatSearchInput")?.value || "").toLowerCase().trim();
+      const filtered = q
+        ? allLoadedConversations.filter(c => {
+            const name = (c.profile_name || "").toLowerCase();
+            const wa = (c.wa_id || "").toLowerCase();
+            const msg = (c.last_message || "").toLowerCase();
+            return name.includes(q) || wa.includes(q) || msg.includes(q);
+          })
+        : allLoadedConversations;
+      renderConversationList(filtered);
+    }
+
+    function renderConversationList(convs) {
+      const list = document.getElementById("queueList");
+      const dispEl = document.getElementById("displayedChatsCount");
+      const totalEl = document.getElementById("totalChatsCount");
+      const countEl = document.getElementById("chatsCount");
+      if (dispEl) dispEl.textContent = convs ? convs.length : 0;
+      if (totalEl) totalEl.textContent = allLoadedConversations.length;
+      if (countEl) countEl.textContent = allLoadedConversations.length;
+
+      if (!list) return;
+      if (!convs || convs.length === 0) {
+        list.innerHTML = '<p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No matching conversations found.</p>';
+        return;
+      }
+      const prevScroll = list.scrollTop;
+      let html = "";
+      convs.forEach(c => {
+        const isActive = c.wa_id === currentWaId ? " active" : "";
+        const name = c.profile_name || c.wa_id;
+        const preview = c.last_message ? (c.last_message.length > 55 ? c.last_message.substring(0, 52) + "..." : c.last_message) : (c.state || "active");
+        const isHandoff = Boolean(c.handoff);
+        const modeBadge = isHandoff 
+          ? ' <span class="badge badge-yellow" style="font-size: 10px;">👤 Human</span>' 
+          : ' <span class="badge badge-green" style="font-size: 10px;">🤖 Bot</span>';
+        html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${isHandoff})">
+          <div style="display: flex; justify-content: space-between; align-items: baseline;">
+            <strong>${name}${modeBadge}</strong>
+            <small style="font-size: 10px; color: var(--text-muted);">${c.updated_at ? c.updated_at.split('T')[0] : ''}</small>
+          </div>
+          <div style="font-size: 12px; color: #9ca3af; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${preview}</div>
+        </div>`;
+      });
+      list.innerHTML = html;
+      list.scrollTop = prevScroll;
+    }
+
     async function fetchAllConversations(silent = false) {
       try {
-        const res = await fetch("/admin/conversations?limit=50", { headers: getAuthHeader() });
+        const limitEl = document.getElementById("chatLimitSelect");
+        const limit = limitEl ? limitEl.value : 250;
+        const res = await fetch(`/admin/conversations?limit=${limit}`, { headers: getAuthHeader() });
         if (res.status === 401) {
           const list = document.getElementById("queueList");
           if (list) {
@@ -628,40 +704,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }
         if (!res.ok) return;
         const data = await res.json();
-        const convs = data.conversations || [];
-        document.getElementById("chatsCount").textContent = convs.length;
+        allLoadedConversations = data.conversations || [];
+        filterConversations();
 
         // Also fetch handoff count in background
         fetch("/admin/handoffs", { headers: getAuthHeader() })
           .then(r => r.json())
           .then(d => { if (d.count !== undefined) document.getElementById("queueCount").textContent = d.count; })
           .catch(() => {});
-
-        const list = document.getElementById("queueList");
-        if (!convs || convs.length === 0) {
-          list.innerHTML = '<p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No conversations yet. When someone messages your WhatsApp, it will appear here!</p>';
-          return;
-        }
-        const prevScroll = list ? list.scrollTop : 0;
-        let html = "";
-        convs.forEach(c => {
-          const isActive = c.wa_id === currentWaId ? " active" : "";
-          const name = c.profile_name || c.wa_id;
-          const preview = c.last_message ? (c.last_message.length > 55 ? c.last_message.substring(0, 52) + "..." : c.last_message) : (c.state || "active");
-          const isHandoff = Boolean(c.handoff);
-          const modeBadge = isHandoff 
-            ? ' <span class="badge badge-yellow" style="font-size: 10px;">👤 Human</span>' 
-            : ' <span class="badge badge-green" style="font-size: 10px;">🤖 Bot</span>';
-          html += `<div class="queue-item${isActive}" onclick="selectContact('${c.wa_id}', '${name.replace(/'/g, "\\'")}', ${isHandoff})">
-            <div style="display: flex; justify-content: space-between; align-items: baseline;">
-              <strong>${name}${modeBadge}</strong>
-              <small style="font-size: 10px; color: var(--text-muted);">${c.updated_at ? c.updated_at.split('T')[0] : ''}</small>
-            </div>
-            <div style="font-size: 12px; color: #9ca3af; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${preview}</div>
-          </div>`;
-        });
-        list.innerHTML = html;
-        if (list) list.scrollTop = prevScroll;
       } catch (e) {}
     }
 
@@ -673,6 +723,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const data = await res.json();
         const count = data.count || 0;
         document.getElementById("queueCount").textContent = count;
+        const dispEl = document.getElementById("displayedChatsCount");
+        const totalEl = document.getElementById("totalChatsCount");
+        if (dispEl) dispEl.textContent = count;
+        if (totalEl) totalEl.textContent = count;
         const list = document.getElementById("queueList");
         if (!data.handoffs || data.handoffs.length === 0) {
           list.innerHTML = '<p style="color: var(--text-muted); font-size: 13px; padding: 8px;">No open customer handoffs.</p>';
@@ -1005,6 +1059,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         document.body.removeChild(a);
       } catch (e) {
         alert("Failed to download database backup: " + e);
+      }
+    }
+
+    async function syncLarkCRM() {
+      if (!confirm("Synchronize all WhatsApp conversations from database to Lark Base CRM table 01_Leads now?")) return;
+      const btn = event?.target;
+      const oldText = btn ? btn.textContent : "";
+      if (btn) {
+        btn.textContent = "⏳ Syncing to Lark...";
+        btn.disabled = true;
+      }
+      try {
+        const res = await fetch("/admin/crm/sync-leads", {
+          method: "POST",
+          headers: getAuthHeader()
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(`✅ Sync Completed Successfully!\nTotal Processed: ${data.total_conversations}\nSynced Leads: ${data.synced_leads}\nErrors: ${data.errors || 0}`);
+        } else {
+          alert("Sync failed: " + (data.detail ? (data.detail.message || JSON.stringify(data.detail)) : "Error"));
+        }
+      } catch (e) {
+        alert("Failed to sync to Lark CRM: " + e);
+      } finally {
+        if (btn) {
+          btn.textContent = oldText;
+          btn.disabled = false;
+        }
       }
     }
   </script>

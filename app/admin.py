@@ -34,11 +34,13 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/dashboard/", response_class=HTMLResponse)
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
-def admin_dashboard() -> HTMLResponse:
+def admin_dashboard(services: Services = Depends(get_services)) -> HTMLResponse:
     """Sleek web-based Staff & Admin Console for NexgloTV."""
     from .dashboard_html import DASHBOARD_HTML
 
-    return HTMLResponse(content=DASHBOARD_HTML)
+    token = services.settings.admin_token or ""
+    html = DASHBOARD_HTML.replace("__SERVER_ADMIN_TOKEN__", token)
+    return HTMLResponse(content=html)
 
 
 
@@ -152,7 +154,7 @@ def list_handoffs(last: int = Query(5, ge=0, le=50), desk: StaffDesk = Depends(s
 
 
 @router.get("/conversations")
-def list_conversations(limit: int = Query(50, ge=1, le=500), desk: StaffDesk = Depends(staff_desk)) -> dict:
+def list_conversations(limit: int = Query(250, ge=1, le=1000), desk: StaffDesk = Depends(staff_desk)) -> dict:
     items = desk.recent_conversations(limit=limit)
     return {"count": len(items), "conversations": items}
 
@@ -330,5 +332,69 @@ def download_backup(desk: StaffDesk = Depends(staff_desk)) -> Response:
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/crm/sync-leads")
+def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
+    """Synchronize recent conversations from database into Lark Base CRM."""
+    import json
+    from .crm_sheets import LeadRecord
+
+    services = desk.services
+    crm_provider = services.crm.provider
+    if not hasattr(crm_provider, "upsert_lead"):
+        raise HTTPException(status_code=400, detail="Active CRM provider does not support direct lead sync.")
+
+    sql = """
+    SELECT 
+        c.wa_id, c.state, c.lang, c.draft, c.handoff, c.profile_name, c.opted_out,
+        c.last_user_at, c.is_existing_customer, c.customer_id, c.lead_id,
+        c.created_at, c.updated_at
+    FROM conversations c
+    ORDER BY c.updated_at DESC
+    LIMIT 250
+    """
+    with desk.store._connect() as con:
+        rows = [dict(r) for r in con.execute(sql).fetchall()]
+
+    synced = 0
+    errors = 0
+    for r in rows:
+        wa_id = str(r.get("wa_id") or "").strip()
+        if not wa_id:
+            continue
+        try:
+            draft = json.loads(r.get("draft") or "{}")
+        except Exception:
+            draft = {}
+        stage = "ESCALATED" if r.get("handoff") else "NEW_LEAD"
+        lead = LeadRecord(
+            lead_id=r.get("lead_id") or "",
+            wa_id=wa_id,
+            phone_e164=f"+{wa_id}" if not wa_id.startswith("+") else wa_id,
+            name=r.get("profile_name") or f"WhatsApp Contact {wa_id[-4:]}",
+            source="whatsapp",
+            lead_stage=stage,
+            first_contact_at=str(r.get("created_at") or ""),
+            last_message_at=str(r.get("last_user_at") or r.get("updated_at") or ""),
+            months=int(draft.get("months") or 0),
+            device_count=int(draft.get("devices") or draft.get("device_count") or 0),
+            subscription_quote_le=int(draft.get("quote") or draft.get("subscription_quote_le") or 0),
+            area=str(draft.get("area") or ""),
+        )
+        try:
+            if crm_provider.upsert_lead(lead):
+                synced += 1
+                if lead.lead_id and lead.lead_id != r.get("lead_id"):
+                    desk.store.set_lead_id(wa_id, lead.lead_id)
+        except Exception:
+            errors += 1
+
+    return {
+        "status": "success",
+        "total_conversations": len(rows),
+        "synced_leads": synced,
+        "errors": errors,
+    }
 
 

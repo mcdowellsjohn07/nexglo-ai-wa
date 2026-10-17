@@ -123,7 +123,45 @@ class StaffDesk:
             items.append(item)
         return items
 
-    def recent_conversations(self, limit: int = 50) -> list[dict]:
+    def recent_conversations(self, limit: int = 100) -> list[dict]:
+        if hasattr(self.store, "list_recent_conversations_with_summary"):
+            rows = self.store.list_recent_conversations_with_summary(limit=limit)
+            items = []
+            for r in rows:
+                last_user_at = r.get("last_user_at")
+                window_data = {"open": False, "last_user_at": None, "hours_since": None, "closes_at": None}
+                if last_user_at:
+                    try:
+                        last = from_db(last_user_at)
+                        clock_fn = self.clock or system_clock
+                        since = clock_fn() - last
+                        window_data = {
+                            "open": since < WINDOW,
+                            "last_user_at": last_user_at,
+                            "hours_since": round(since.total_seconds() / 3600, 1),
+                            "closes_at": (last + WINDOW).strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+                item = {
+                    "wa_id": r.get("wa_id", ""),
+                    "profile_name": r.get("profile_name") or "",
+                    "lang": r.get("lang") or "en",
+                    "state": r.get("state") or "idle",
+                    "handoff": bool(r.get("handoff")),
+                    "opted_out": bool(r.get("opted_out")),
+                    "window": window_data,
+                    "is_existing_customer": bool(r.get("is_existing_customer")),
+                    "customer_id": r.get("customer_id"),
+                    "lead_id": r.get("lead_id"),
+                    "updated_at": r.get("updated_at"),
+                    "last_message": r.get("last_message") or "",
+                    "last_message_at": r.get("last_message_at") or r.get("updated_at"),
+                }
+                items.append(item)
+            return items
+
+        # Fallback for mock stores in tests
         all_convs = self.store.list_conversations()
         all_convs.sort(key=lambda c: c.updated_at or "", reverse=True)
         items = []
