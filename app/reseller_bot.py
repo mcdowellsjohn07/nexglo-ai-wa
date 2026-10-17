@@ -226,11 +226,40 @@ class ResellerBotManager:
                 if phone_matches(wa_id, cand.phone):
                     return cand
                 else:
-                    log.warning(
-                        "Security violation: Sender %s attempted to claim reseller code %s belonging to %s",
-                        wa_id, clean_code, cand.phone,
+                    log.info(
+                        "Sender %s provided reseller code %s (customer referral context)",
+                        wa_id, clean_code,
                     )
                     return None
+
+        return None
+
+    def get_reseller_by_code(self, code: str) -> Optional[ResellerProfile]:
+        """Look up a reseller profile by code (case-insensitive) in cache or live Lark CRM."""
+        if not code:
+            return None
+        clean_code = code.strip().upper()
+        if clean_code in self._resellers_by_code:
+            return self._resellers_by_code[clean_code]
+
+        if self.crm_provider and hasattr(self.crm_provider, "_get_by_key"):
+            try:
+                row = self.crm_provider._get_by_key("09_Resellers", clean_code)
+                if row:
+                    res_phone = normalize_phone_sl(str(row.get("Phone Number") or row.get("Phone", "")))
+                    res = ResellerProfile(
+                        reseller_id=str(row.get("Reseller ID", clean_code)),
+                        reseller_code=str(row.get("Reseller Code", clean_code)),
+                        name=str(row.get("Reseller Name") or row.get("Business Name", "Partner")),
+                        phone=res_phone,
+                        email=str(row.get("Business Email", "")),
+                        status=str(row.get("Status", "Active")),
+                        operating_model=str(row.get("Operating Model", "Hybrid")),
+                    )
+                    self.register_reseller(res)
+                    return res
+            except Exception as exc:
+                log.debug("Lark reseller lookup by code failed for %s: %s", clean_code, exc)
 
         return None
 

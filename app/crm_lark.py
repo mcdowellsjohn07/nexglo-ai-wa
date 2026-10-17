@@ -842,6 +842,34 @@ class LarkBaseCRMProvider(CRMProvider):
             fields = {k: v for k, v in fields.items() if v not in (None, "")}
             return self._upsert_by_key("06_Payments", fields)[0]
 
+    def get_payment_by_ref(self, ref: str) -> Optional[PaymentRecord]:
+        if not ref:
+            return None
+        with self._lock:
+            try:
+                tid = self._table_id("06_Payments")
+                res = _run_cli(["+record-search", "--base-token", self.base_token,
+                                "--table-id", tid, "--keyword", str(ref),
+                                "--limit", "1"], timeout=60)
+                row = self._parse_search(res)
+                if not row:
+                    return None
+                return PaymentRecord(
+                    payment_id=str(row.get("Payment ID", "")),
+                    customer_id=str(row.get("Customer ID", "")),
+                    lead_id=str(row.get("Lead ID", "")),
+                    expected_amount_le=int(row.get("Amount Due SLE") or row.get("Amount Received SLE") or 0),
+                    method=str(row.get("Payment Method", "")),
+                    transaction_reference=str(row.get("Payment Reference", "")),
+                    status=str(row.get("Payment Status", "pending")),
+                    verified_by=str(row.get("Confirmed By Staff ID", "")),
+                    created_at=str(row.get("Received At", "")),
+                    note=str(row.get("Payment Notes", "")),
+                )
+            except Exception as exc:
+                log.warning("Payment search by ref failed (%s): %s", ref, exc)
+                return None
+
     def upsert_installation(self, installation: InstallationRecord) -> bool:
         with self._lock:
             inst = installation

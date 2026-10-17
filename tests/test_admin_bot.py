@@ -286,3 +286,176 @@ def test_admin_reseller_and_wallet_controls(admin_services):
     last_reply = agent.store.history(admin_phone, limit=2)[-1]["content"]
     assert "Reseller Prepaid Wallet Model DISABLED" in last_reply
     assert agent.reseller_mgr.wallet_enabled is False
+
+
+def test_admin_direct_sale_and_renewal(admin_services):
+    agent = admin_services.agent
+    admin_phone = "+23276999000"
+    customer_phone = "076123456"
+    norm_phone = "+23276123456"
+
+    # 1. Admin records a direct sale
+    inbound_sale = InboundMessage(
+        message_id="adm_sale_1",
+        wa_id=admin_phone,
+        type="text",
+        text="ADMIN SALE 076123456, John Kamara, 1mo 1dev, Orange Money, OM123456",
+    )
+    agent.handle_message(inbound_sale)
+    reply = agent.store.history(admin_phone, limit=2)[-1]["content"]
+
+    assert "Direct Sale Recorded & Customer Activated" in reply
+    assert "John Kamara" in reply
+    assert norm_phone in reply
+    assert "Le180" in reply
+    assert "OM123456" in reply
+    assert "DIRECT" in reply
+
+    # Verify CRM customer record
+    cust = agent.crm.provider.get_customer_by_wa_id(norm_phone)
+    assert cust is not None
+    assert cust.name == "John Kamara"
+    assert cust.account_status == "active"
+    assert cust.reseller_code == "DIRECT"
+    assert cust.amount_paid_le == 180
+
+    # Verify payment record
+    payment = agent.crm.provider.get_payment_by_ref("OM123456")
+    assert payment is not None
+    assert payment.status == "confirmed"
+    assert payment.verified_by == "admin_whatsapp"
+
+    # Verify lead record marked converted
+    lead = agent.crm.provider.get_lead_by_wa_id(norm_phone)
+    assert lead is not None
+    assert lead.lead_stage == "CONVERTED"
+
+    # 2. Admin records a direct renewal for the customer
+    inbound_renew = InboundMessage(
+        message_id="adm_renew_1",
+        wa_id=admin_phone,
+        type="text",
+        text="ADMIN RENEW 076123456, 3mo 2dev, Afrimoney, AF998877",
+    )
+    agent.handle_message(inbound_renew)
+    reply_renew = agent.store.history(admin_phone, limit=2)[-1]["content"]
+
+    assert "Direct Renewal Recorded & Subscription Extended" in reply_renew
+    assert "Renewal Count: *1*" in reply_renew
+    assert "AF998877" in reply_renew
+
+    cust_renewed = agent.crm.provider.get_customer_by_wa_id(norm_phone)
+    assert cust_renewed.renewal_count == 1
+
+
+def test_admin_crm_actions(admin_services):
+    agent = admin_services.agent
+    admin_phone = "+23276999000"
+    target_phone = "076888999"
+    norm_target = "+23276888999"
+
+    # Seed a sale first so records exist in CRM
+    agent.handle_message(InboundMessage(
+        message_id="seed_1",
+        wa_id=admin_phone,
+        type="text",
+        text="ADMIN SALE 076888999, Aminata Koroma, 1mo 1dev, Cash, CASH-001",
+    ))
+
+    # 1. ADMIN CRM CUSTOMER
+    agent.handle_message(InboundMessage(
+        message_id="crm_c1",
+        wa_id=admin_phone,
+        type="text",
+        text=f"ADMIN CRM CUSTOMER {target_phone}",
+    ))
+    reply_cust = agent.store.history(admin_phone, limit=2)[-1]["content"]
+    assert "Lark CRM Customer Profile" in reply_cust
+    assert "Aminata Koroma" in reply_cust
+    assert "ACTIVE" in reply_cust
+
+    # 2. ADMIN CRM LEAD
+    agent.handle_message(InboundMessage(
+        message_id="crm_l1",
+        wa_id=admin_phone,
+        type="text",
+        text=f"ADMIN CRM LEAD {target_phone}",
+    ))
+    reply_lead = agent.store.history(admin_phone, limit=2)[-1]["content"]
+    assert "Lark CRM Lead Profile" in reply_lead
+    assert "CONVERTED" in reply_lead
+
+    # 3. ADMIN CRM STAGE
+    agent.handle_message(InboundMessage(
+        message_id="crm_s1",
+        wa_id=admin_phone,
+        type="text",
+        text=f"ADMIN CRM STAGE {target_phone} QUOTED",
+    ))
+    reply_stage = agent.store.history(admin_phone, limit=2)[-1]["content"]
+    assert "Lead Stage Updated" in reply_stage
+    assert "QUOTED" in reply_stage
+
+    # 4. ADMIN CRM PAYMENT
+    agent.handle_message(InboundMessage(
+        message_id="crm_p1",
+        wa_id=admin_phone,
+        type="text",
+        text="ADMIN CRM PAYMENT CASH-001",
+    ))
+    reply_pay = agent.store.history(admin_phone, limit=2)[-1]["content"]
+    assert "Lark CRM Payment Record" in reply_pay
+    assert "CONFIRMED" in reply_pay
+    assert "CASH-001" in reply_pay
+
+    # 5. ADMIN CRM STATS
+    agent.handle_message(InboundMessage(
+        message_id="crm_st1",
+        wa_id=admin_phone,
+        type="text",
+        text="ADMIN CRM STATS",
+    ))
+    reply_stats = agent.store.history(admin_phone, limit=2)[-1]["content"]
+    assert "Lark CRM & Operations Summary" in reply_stats
+    assert "Total Leads:" in reply_stats
+    assert "Active Customers:" in reply_stats
+
+
+def test_customer_mentioning_reseller_code_promo_reward(admin_services):
+    """When a customer mentions a reseller code, it is not flagged as a security issue.
+    
+    Instead, it applies a 20% discount, records referral in CRM, and presents packages.
+    """
+    agent = admin_services.agent
+    customer_phone = "23277123456"  # Regular customer, NOT the pilot reseller (23276000001)
+
+    # Ensure clean starting state for customer test
+    agent.store.set_handoff(customer_phone, False)
+    agent.store.set_state(customer_phone, "idle")
+
+    # Customer texts reseller promo code
+    inbound = InboundMessage(
+        message_id="cust_rsl_1",
+        wa_id=customer_phone,
+        type="text",
+        text="RSL-PILOT01",
+    )
+    agent.handle_message(inbound)
+
+    history = agent.store.history(customer_phone, limit=5)
+    assistant_messages = [m["content"] for m in history if m.get("role") == "assistant"]
+    all_assistant_text = "\n".join(assistant_messages)
+
+    # Must NOT contain security warnings or errors
+    assert "Security violation" not in all_assistant_text
+    assert "inactive" not in all_assistant_text.lower() or "not recognized" not in all_assistant_text.lower()
+
+    # Must contain friendly partner promo applied message and discount details
+    assert "Partner Promo Code Applied!" in all_assistant_text
+    assert "RSL-PILOT01" in all_assistant_text
+    assert "20% Partner Discount" in all_assistant_text
+
+    # Referral must be recorded in CRM
+    lead = agent.crm.provider.get_lead_by_wa_id(customer_phone)
+    assert lead is not None
+    assert lead.referrer_code == "RSL-PILOT01"

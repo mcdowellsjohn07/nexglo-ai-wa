@@ -309,6 +309,9 @@ class CRMProvider(ABC):
     def upsert_referral(self, referral: ReferralRecord) -> bool:
         pass
 
+    def get_payment_by_ref(self, ref: str) -> Optional[PaymentRecord]:
+        return None
+
 
 # --- Mock Provider (for testing without credentials) --------------------------
 
@@ -378,6 +381,18 @@ class MockCRMProvider(CRMProvider):
         self.payments.append(payment)
         log.debug("Mock CRM: recorded payment %s", payment.payment_id)
         return True
+
+    def get_payment_by_ref(self, ref: str) -> Optional[PaymentRecord]:
+        clean = (ref or "").strip().lower()
+        if not clean:
+            return None
+        for p in reversed(self.payments):
+            if (p.transaction_reference and clean == p.transaction_reference.lower()) or \
+               (p.payment_id and clean == p.payment_id.lower()) or \
+               (p.phone_e164 and clean in p.phone_e164.lower()) or \
+               (p.customer_id and clean == p.customer_id.lower()):
+                return p
+        return None
 
     def upsert_installation(self, installation: InstallationRecord) -> bool:
         if not installation.installation_id:
@@ -962,3 +977,11 @@ class CRMService:
         except Exception:
             log.exception("Failed to set opt_out for %s", wa_id)
             return None
+
+    def get_payment_by_ref(self, ref: str) -> Optional[PaymentRecord]:
+        try:
+            if hasattr(self.provider, "get_payment_by_ref"):
+                return self.provider.get_payment_by_ref(ref)
+        except Exception:
+            log.exception("Failed to get payment by ref %s", ref)
+        return None

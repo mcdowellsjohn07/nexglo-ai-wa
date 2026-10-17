@@ -149,7 +149,7 @@ TRANSITIONS: dict[str, set[str]] = {
     State.LOST: {State.IDLE},
     State.ESCALATED: {State.HUMAN, State.IDLE},
     State.RENEWAL: {State.PACKAGE_SELECTED, State.PAYMENT_DUE, State.IDLE, State.HUMAN},
-    State.HUMAN: {State.IDLE},  # Customer can reset from human
+    State.HUMAN: {State.IDLE, State.PRICES_SENT},  # Customer can reset or request pricing from human
     State.OPTED_OUT: {State.IDLE},  # Opt-in returns to idle
 }
 

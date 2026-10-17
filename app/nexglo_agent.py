@@ -832,23 +832,35 @@ class Agent:
 
     def _handle_referral(self, conv: Conversation, text: str) -> None:
         wa_id, lang = conv.wa_id, conv.lang
-        # Extract referral code (simple heuristic)
-        words = text.split()
-        code = None
-        for i, w in enumerate(words):
-            if w.lower() in ("code", "codigo", "referred", "referido", "by", "por") and i + 1 < len(words):
-                code = words[i + 1]
-                break
+        # Extract referral code
+        match = re.search(r"\b(RSL-[A-Za-z0-9]+|RES-[A-Za-z0-9]+)\b", text, re.IGNORECASE)
+        code = match.group(1).upper() if match else None
+        if not code:
+            words = text.split()
+            for i, w in enumerate(words):
+                if w.lower() in ("code", "codigo", "referred", "referido", "by", "por") and i + 1 < len(words):
+                    code = words[i + 1].strip().upper()
+                    break
         if code:
-            self.crm.record_referral(wa_id, code)
+            partner = getattr(self.reseller_mgr, "get_reseller_by_code", lambda c: None)(code)
+            if partner:
+                self._handle_customer_reseller_code(conv, partner)
+                return
+            if self.crm and hasattr(self.crm, "record_referral"):
+                self.crm.record_referral(wa_id, code)
         self._send_text(wa_id, t("referral_prompt", lang))
         self._goto(conv, State.REFERRAL)
 
     def _handle_referral_code(self, conv: Conversation, text: str) -> None:
         wa_id = conv.wa_id
-        code = text.strip()
+        code = text.strip().upper()
         if code:
-            self.crm.record_referral(wa_id, code)
+            partner = getattr(self.reseller_mgr, "get_reseller_by_code", lambda c: None)(code)
+            if partner:
+                self._handle_customer_reseller_code(conv, partner)
+                return
+            if self.crm and hasattr(self.crm, "record_referral"):
+                self.crm.record_referral(wa_id, code)
         self._send_price_card(conv)
 
     def _handle_support(self, conv: Conversation, text: str) -> None:
@@ -1132,11 +1144,49 @@ class Agent:
         reseller = self.reseller_mgr.identify_reseller(wa_id, code_hint=code_hint)
         if not reseller:
             if code_hint:
-                self._send_text(wa_id, f"❌ Reseller code *{code_hint}* not recognized or inactive. Please contact NexgloTV Admin to verify your onboarding.")
+                partner = getattr(self.reseller_mgr, "get_reseller_by_code", lambda c: None)(code_hint)
+                if partner:
+                    return self._handle_customer_reseller_code(conv, partner)
+                self._send_text(
+                    wa_id,
+                    f"ℹ️ Referral code *{code_hint}* was not found. Reply with *MENU* to view all packages!",
+                )
                 return True
-            return False
+            self._send_text(
+                wa_id,
+                "🔒 *NexgloTV Partner Portal*\n\n"
+                "The Partner Portal is restricted to authorized NexgloTV Resellers.\n"
+                "If you have a partner referral promo code (e.g. `RSL-PILOT01`), send it to unlock your 20% discount!\n"
+                "Otherwise, reply with *MENU* to view our subscription packages.",
+            )
+            return True
 
         self._send_reseller_menu(conv, reseller)
+        return True
+
+    def _handle_customer_reseller_code(self, conv: Conversation, partner) -> bool:
+        """Handle when a customer mentions or inputs a valid reseller referral code."""
+        wa_id = conv.wa_id
+        code = getattr(partner, "reseller_code", str(partner))
+        partner_name = getattr(partner, "name", "Partner")
+
+        # Reset any prior flow state cleanly
+        self._reset(conv)
+        conv.draft["reseller_code"] = code
+        conv.draft["partner_name"] = partner_name
+        self.store.update_draft(wa_id, conv.draft)
+
+        # Attribute referral in CRM
+        if self.crm and hasattr(self.crm, "record_referral"):
+            self.crm.record_referral(wa_id, code)
+
+        msg = (
+            f"🎉 *Partner Promo Code Applied!* (`{code}`)\n\n"
+            f"You've unlocked our official 20% Partner Discount courtesy of *{partner_name}*!\n\n"
+            "Here are our official discounted subscription packages:"
+        )
+        self._send_text(wa_id, msg)
+        self._send_price_card(conv)
         return True
 
     def _send_reseller_menu(self, conv: Conversation, reseller) -> None:
