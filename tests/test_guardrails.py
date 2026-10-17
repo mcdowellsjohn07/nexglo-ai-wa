@@ -170,8 +170,9 @@ def test_get_hardened_system_directive():
 # 3. Agent Integration & Operation Guardrails Tests
 # =============================================================================
 
-def test_agent_blocks_prompt_injection_inbound():
-    services = build_services(Settings())
+def test_agent_blocks_prompt_injection_inbound(tmp_path):
+    db_file = str(tmp_path / "test_guardrails.sqlite")
+    services = build_services(Settings(auto_reply_mode="all"), db_path=db_file)
     agent = services.agent
     user_phone = "23276554433"
 
@@ -188,8 +189,9 @@ def test_agent_blocks_prompt_injection_inbound():
     assert "Security Notice" in last_reply or "Confidentiality Notice" in last_reply
 
 
-def test_agent_blocks_unauthorized_reseller_fast_commands():
-    services = build_services(Settings())
+def test_agent_blocks_unauthorized_reseller_fast_commands(tmp_path):
+    db_file = str(tmp_path / "test_unauth_reseller.sqlite")
+    services = build_services(Settings(auto_reply_mode="all"), db_path=db_file)
     agent = services.agent
     attacker_phone = "23276999999"  # Not a registered reseller
 
@@ -231,8 +233,9 @@ def test_agent_blocks_unauthorized_reseller_fast_commands():
     assert "Restricted Command" in last_reply
 
 
-def test_disabled_wallet_model_in_agent_and_manager():
-    services = build_services(Settings())
+def test_disabled_wallet_model_in_agent_and_manager(tmp_path):
+    db_file = str(tmp_path / "test_wallet_model.sqlite")
+    services = build_services(Settings(auto_reply_mode="all"), db_path=db_file)
     agent = services.agent
 
     # Register verified pilot partner

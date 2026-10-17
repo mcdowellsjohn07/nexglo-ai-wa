@@ -272,6 +272,14 @@ class Agent:
 
         self.wa.mark_read(msg.message_id)
 
+        # 0. Strict Security Guardrails Check (blocks prompt injections, jailbreaks, fraud, exploits)
+        if text:
+            from .guardrails import check_input_guardrails
+            guard = check_input_guardrails(text, lang=conv.lang)
+            if guard.blocked:
+                self._send_text(wa_id, guard.response_message or "Request blocked by safety policy.")
+                return
+
         # Admin WhatsApp Command Engine: Check if sender is verified admin and command
         if text and hasattr(self, "admin_bot") and self.admin_bot:
             if self.admin_bot.handle_if_admin(conv, text):
