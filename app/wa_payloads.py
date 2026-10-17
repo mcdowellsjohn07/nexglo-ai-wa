@@ -12,6 +12,7 @@ text plus the options a customer could tap.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 MAX_BUTTONS = 3
@@ -19,7 +20,8 @@ MAX_LIST_ROWS = 10
 
 
 def _base(to: str) -> dict:
-    return {"messaging_product": "whatsapp", "recipient_type": "individual", "to": to}
+    digits = re.sub(r"[^\d]", "", str(to or ""))
+    return {"messaging_product": "whatsapp", "recipient_type": "individual", "to": digits}
 
 
 def text_payload(to: str, body: str, preview_url: bool = False) -> dict:

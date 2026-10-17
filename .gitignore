@@ -44,3 +44,4 @@ data/payments.yaml
 data/approved_apps.json
 *.zip
 backups/
+scratch/

@@ -277,6 +277,11 @@ class Agent:
             if self.admin_bot.handle_if_admin(conv, text):
                 return
 
+        # Reseller WhatsApp Command Engine: Check if sender is reseller or promo code
+        if text and hasattr(self, "reseller_mgr") and self.reseller_mgr:
+            if self._check_and_handle_reseller(conv, text):
+                return
+
         # Language detection (only free text)
         if text and not payload_id:
             detected = detect_lang(text)

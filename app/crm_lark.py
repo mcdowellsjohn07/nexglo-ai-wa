@@ -49,6 +49,27 @@ log = logging.getLogger("nexglo.crm_lark")
 
 BASE_NAME = "NexgloTV CRM"
 
+TABLE_PRIMARY_DATE: dict[str, str] = {
+    "01_Leads": "Created At",
+    "02_Free_Trials": "Requested At",
+    "03_Customers": "Date Joined",
+    "04_Packages": "Valid From",
+    "05_Subscriptions": "Activation Date",
+    "06_Payments": "Received At",
+    "07_Installations": "Requested At",
+    "08_Devices": "Registered At",
+    "09_Resellers": "Joined At",
+    "10_Reseller_Sales": "Sale Date",
+    "11_Commissions": "Earned On",
+    "12_Reseller_Payouts": "Requested At",
+    "13_Reseller_Wallet": "Transaction At",
+    "14_Referrals": "Referral Date",
+    "15_Staff": "Start Date",
+    "16_Support_Tickets": "Opened At",
+    "17_Activities": "Activity At",
+    "18_Service_Zones": "Price Effective Date",
+}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -143,9 +164,10 @@ class LarkBaseCRMProvider(CRMProvider):
     """Lark Base CRM with the owner's 18-table schema."""
 
     def __init__(self, base_token: str = "", auto_create: bool = True):
+        import os
         import threading
 
-        self.base_token = base_token
+        self.base_token = base_token or os.environ.get("LARK_BASE_TOKEN", "")
         self._lock = threading.RLock()
         self._table_ids: dict[str, str] = {}
         self._id_cache: dict[str, dict[str, str]] = {}   # table -> {key_value: record_id}
@@ -327,6 +349,13 @@ class LarkBaseCRMProvider(CRMProvider):
         key = TABLE_KEY_FIELD[table]
         if not fields.get(key):
             fields[key] = self._gen_id(table)
+        date_col = TABLE_PRIMARY_DATE.get(table)
+        if date_col and not fields.get(date_col):
+            now_iso = _iso(_now())
+            if table == "01_Leads":
+                fields[date_col] = self._as_iso(fields.get("First Contact At") or fields.get("Last Contact At") or now_iso)
+            else:
+                fields[date_col] = now_iso
         return fields
 
     # ============================================================== cache/read
@@ -394,7 +423,27 @@ class LarkBaseCRMProvider(CRMProvider):
         wa_field = TABLE_WA_FIELD.get(table)
         if not wa_field:
             return None
-        key_value = self._wa_cache.get(table, {}).get(_digits(wa_id))
+        digits = _digits(wa_id)
+        if not digits:
+            return None
+        # 1. Exact match in cache
+        key_value = self._wa_cache.get(table, {}).get(digits)
+        # 2. Suffix match in cache (handles country code formatting variants)
+        if not key_value and len(digits) >= 8:
+            suffix = digits[-8:]
+            for cached_wa, kv in self._wa_cache.get(table, {}).items():
+                if cached_wa.endswith(suffix):
+                    key_value = kv
+                    break
+        # 3. Live search fallback if not in cache
+        if not key_value:
+            raw = self._get_by_wa(table, wa_id)
+            if raw:
+                key_field = TABLE_KEY_FIELD[table]
+                kv = str(raw.get(key_field) or "")
+                if kv:
+                    key_value = kv
+                    self._wa_cache.setdefault(table, {})[digits] = kv
         if not key_value:
             return None
         return self._id_cache.get(table, {}).get(key_value)
@@ -456,11 +505,34 @@ class LarkBaseCRMProvider(CRMProvider):
         fields = self._resolve_links(table, fields)
         fields = {k: v for k, v in fields.items() if v is not None}
         rid = self._find_by_key(table, key_value)
+
+        # Enforce unique constraint on WhatsApp Number across tables with a WA field (e.g. 01_Leads, 03_Customers)
+        wa_field = TABLE_WA_FIELD.get(table)
+        if not rid and wa_field and fields.get(wa_field):
+            wa_val = str(fields.get(wa_field) or "")
+            wa_digits = _digits(wa_val)
+            existing_rid = self._find_by_wa(table, wa_val)
+            if existing_rid:
+                rid = existing_rid
+                # Find and preserve existing primary key ID
+                existing_key = self._wa_cache.get(table, {}).get(wa_digits)
+                if not existing_key:
+                    for k, r in self._id_cache.get(table, {}).items():
+                        if r == existing_rid:
+                            existing_key = k
+                            break
+                if existing_key:
+                    key_value = existing_key
+                    fields[key] = existing_key
+
         try:
             if rid:
                 upd = json.dumps({"update_records": {rid: fields}}, ensure_ascii=False, default=str)
                 _run_cli(["+record-batch-update", "--base-token", self.base_token,
                           "--table-id", tid, "--json", upd], timeout=120)
+                if wa_field and fields.get(wa_field):
+                    self._wa_cache.setdefault(table, {})[_digits(str(fields[wa_field]))] = key_value
+                self._id_cache.setdefault(table, {})[key_value] = rid
                 return True, key_value
             res = _run_cli(["+record-batch-create", "--base-token", self.base_token,
                             "--table-id", tid,
@@ -473,6 +545,8 @@ class LarkBaseCRMProvider(CRMProvider):
                 new_rid = first.get("record_id", "") if isinstance(first, dict) else str(first)
                 if new_rid:
                     self._id_cache.setdefault(table, {})[key_value] = new_rid
+                    if wa_field and fields.get(wa_field):
+                        self._wa_cache.setdefault(table, {})[_digits(str(fields[wa_field]))] = key_value
             return True, key_value
         except LarkCLIError as exc:
             log.error("Lark upsert failed (%s key=%s): %s", table, key_value, exc)
@@ -589,9 +663,15 @@ class LarkBaseCRMProvider(CRMProvider):
             existing = self._lead_records.get(wa_key)
             if existing and existing.lead_id:
                 lead.lead_id = existing.lead_id
-            elif lead.lead_id and not str(lead.lead_id).startswith("LEAD-"):
-                # Normalize auto-generated UUIDs to readable LEAD-XXXXXX-XXXXXX IDs
-                lead.lead_id = self._gen_id("01_Leads")
+            elif not lead.lead_id or not str(lead.lead_id).startswith("LEAD-"):
+                existing_rid = self._find_by_wa("01_Leads", lead.wa_id)
+                existing_lead_id = self._wa_cache.get("01_Leads", {}).get(wa_key)
+                if existing_lead_id:
+                    lead.lead_id = existing_lead_id
+                else:
+                    lead.lead_id = self._gen_id("01_Leads")
+            if not getattr(lead, "created_at", None):
+                lead.created_at = lead.first_contact_at or _iso(_now())
             cols: dict[str, Any] = {}
             for src, dst in self._LEAD_MAP.items():
                 val = getattr(lead, src, None)
@@ -600,6 +680,8 @@ class LarkBaseCRMProvider(CRMProvider):
                 if dst in ("First Contact At", "Last Contact At", "Next Follow Up", "Created At"):
                     val = self._as_iso(val)
                 cols[dst] = val
+            if "Created At" not in cols:
+                cols["Created At"] = self._as_iso(lead.created_at or lead.first_contact_at or _iso(_now()))
             if lead.months and lead.device_count:
                 pkg_id = package_id_for(lead.months, lead.device_count)
                 if pkg_id:
@@ -691,16 +773,25 @@ class LarkBaseCRMProvider(CRMProvider):
             existing = self._customer_records.get(wa_key)
             if existing and existing.customer_id:
                 customer.customer_id = existing.customer_id
-            elif customer.customer_id and not str(customer.customer_id).startswith("CUST-"):
-                customer.customer_id = self._gen_id("03_Customers")
+            elif not customer.customer_id or not str(customer.customer_id).startswith("CUST-"):
+                existing_rid = self._find_by_wa("03_Customers", customer.wa_id)
+                existing_cust_id = self._wa_cache.get("03_Customers", {}).get(wa_key)
+                if existing_cust_id:
+                    customer.customer_id = existing_cust_id
+                else:
+                    customer.customer_id = self._gen_id("03_Customers")
+            if not getattr(customer, "activation_at", None):
+                customer.activation_at = _iso(_now())
             cols: dict[str, Any] = {}
             for src, dst in self._CUSTOMER_MAP.items():
                 val = getattr(customer, src, None)
                 if val in (None, ""):
                     continue
-                if dst == "Date Joined":
+                if dst in ("Date Joined", "Activation Date"):
                     val = self._as_iso(val)
                 cols[dst] = val
+            if "Date Joined" not in cols:
+                cols["Date Joined"] = self._as_iso(customer.activation_at or _iso(_now()))
             extras = []
             if customer.subscription_months:
                 extras.append(f"{customer.subscription_months}mo x {customer.device_count or '?'}dev")

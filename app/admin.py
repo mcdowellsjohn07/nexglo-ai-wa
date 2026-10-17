@@ -359,6 +359,18 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
 
     synced = 0
     errors = 0
+    state_map = {
+        "idle": "NEW_LEAD", "faq_only": "CONTACTED", "prices_sent": "PRICES_SENT",
+        "package_selected": "PACKAGE_SELECTED", "payment_readiness": "PAYMENT_READINESS",
+        "device_selected": "DEVICE_SELECTED", "device_model": "DEVICE_SELECTED",
+        "install_method": "INSTALL_METHOD", "area_captured": "AREA_CAPTURED",
+        "app_link_sent": "APP_LINK_SENT", "app_installed": "APP_INSTALLED",
+        "handoff_requested": "ESCALATED", "human": "ESCALATED", "human_owned": "ESCALATED",
+        "setup_verified": "SETUP_VERIFIED", "payment_due": "PAYMENT_DUE",
+        "payment_verification": "PAYMENT_VERIFICATION", "converted": "CONVERTED",
+        "trial_requested": "TRIAL_REQUESTED", "trial_approval": "TRIAL_REQUESTED",
+        "trial_active": "TRIAL_ACTIVE", "opted_out": "OPTED_OUT", "lost": "LOST", "renewal": "RENEWAL",
+    }
     for r in rows:
         wa_id = str(r.get("wa_id") or "").strip()
         if not wa_id:
@@ -367,7 +379,15 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
             draft = json.loads(r.get("draft") or "{}")
         except Exception:
             draft = {}
-        stage = "ESCALATED" if r.get("handoff") else "NEW_LEAD"
+        c_state = str(r.get("state") or "idle").lower()
+        if r.get("opted_out"):
+            stage = "OPTED_OUT"
+        elif r.get("handoff"):
+            stage = "ESCALATED"
+        else:
+            stage = state_map.get(c_state, "CONTACTED")
+        c_created = str(r.get("created_at") or "")
+        c_last = str(r.get("last_user_at") or r.get("updated_at") or c_created)
         lead = LeadRecord(
             lead_id=r.get("lead_id") or "",
             wa_id=wa_id,
@@ -375,12 +395,21 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
             name=r.get("profile_name") or f"WhatsApp Contact {wa_id[-4:]}",
             source="whatsapp",
             lead_stage=stage,
-            first_contact_at=str(r.get("created_at") or ""),
-            last_message_at=str(r.get("last_user_at") or r.get("updated_at") or ""),
+            first_contact_at=c_created,
+            last_message_at=c_last,
+            created_at=c_created,
             months=int(draft.get("months") or 0),
             device_count=int(draft.get("devices") or draft.get("device_count") or 0),
             subscription_quote_le=int(draft.get("quote") or draft.get("subscription_quote_le") or 0),
             area=str(draft.get("area") or ""),
+            install_method=str(draft.get("install_method") or ""),
+            device_types=str(draft.get("device_type") or draft.get("platform") or ""),
+            app_name=str(draft.get("app_name") or ""),
+            app_installed_reported=bool(draft.get("app_installed")),
+            ready_to_pay_after_setup=bool(draft.get("ready_to_pay")),
+            trial_requested=bool(draft.get("trial_requested") or c_state in ("trial_requested", "trial_approval", "trial_active")),
+            referrer_code=str(draft.get("referrer_code") or draft.get("ref_code") or ""),
+            reseller_code=str(draft.get("reseller_code") or ""),
         )
         try:
             if crm_provider.upsert_lead(lead):
