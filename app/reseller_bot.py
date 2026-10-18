@@ -103,7 +103,7 @@ def validate_sale_inputs(
         clean_name = str(customer_name or "").strip()
         if len(clean_name) < 2 or not any(c.isalpha() for c in clean_name):
             return False, "❌ Customer name is required (at least 2 letters)."
-        if clean_name.lower() in ("valued customer", "customer", "unknown", "test", "none", "null"):
+        if clean_name.lower() in ("unknown", "test", "none", "null"):
             return False, "❌ Please provide the customer's actual full name."
 
     if months not in (1, 3, 6, 12):
@@ -742,24 +742,116 @@ class ResellerBotManager:
 # =============================================================================
 
 def parse_package_spec(text: str) -> tuple[int, int]:
-    """Extract (months, devices) from text snippet like '1m 1d', '3 months 2 devices'."""
-    months = 1
-    devices = 1
-    m_match = re.search(r"(\d+)\s*(?:m|mo|mes|month|meses)", text, re.IGNORECASE)
-    if m_match:
-        months = int(m_match.group(1))
-    d_match = re.search(r"(\d+)\s*(?:d|dev|disp|device|dispositivo)", text, re.IGNORECASE)
-    if d_match:
-        devices = int(d_match.group(1))
+    """Extract (months, devices) from text in any format, e.g. '1m 1d', '3 months 2 devices', '1 year', '180'."""
+    if not text:
+        return 1, 1
+
+    months = None
+    devices = None
+    lower = text.lower()
+
+    # 1. Combined code pattern (e.g. 1m1d, 1m_1d, 3m2d, 1mo1dev)
+    comb = re.search(r"(\d+)\s*[mM][_\s\-/]*(\d+)\s*[dD]", text)
+    if comb:
+        try:
+            m_val, d_val = int(comb.group(1)), int(comb.group(2))
+            if m_val in (1, 3, 6, 12):
+                months = m_val
+            if 1 <= d_val <= 5:
+                devices = d_val
+        except (ValueError, IndexError):
+            pass
+
+    # 2. Months / Duration parsing
+    if months is None:
+        y_match = re.search(r"(\d+)\s*(?:years?|yrs?|y|anos?)\b", lower)
+        if y_match:
+            months = int(y_match.group(1)) * 12
+        elif re.search(r"\b(?:annual|yearly|anual)\b", lower):
+            months = 12
+        elif re.search(r"\b(?:semi[- ]?annual|half[- ]?year|semestral)\b", lower):
+            months = 6
+        elif re.search(r"\b(?:quarter|quarterly|trimestral)\b", lower):
+            months = 3
+        else:
+            m_match = re.search(r"(\d+)\s*(?:months?|meses?|mo|m)\b", lower)
+            if m_match:
+                months = int(m_match.group(1))
+
+    # 3. Devices parsing
+    if devices is None:
+        d_match = re.search(r"(\d+)\s*(?:devices?|dispositivos?|screens?|tvs?|users?|devs?|disp|d)\b", lower)
+        if d_match:
+            devices = int(d_match.group(1))
+
+    # 4. Price matching fallback (if months or devices still missing)
+    if months is None or devices is None:
+        price_map = {
+            180: (1, 1), 320: (1, 2), 420: (1, 3), 480: (1, 4),
+            500: (3, 1), 900: (3, 2), 1200: (3, 3), 1360: (3, 4),
+            950: (6, 1), 1700: (6, 2), 2250: (6, 3), 2560: (6, 4),
+            1800: (12, 1), 3200: (12, 2), 4200: (12, 3), 4800: (12, 4),
+        }
+        price_match = re.search(r"\b(?:le|sle|nle)?\s*(180|320|420|480|500|900|1200|1360|950|1700|2250|2560|1800|3200|4200|4800)\b", lower)
+        if price_match:
+            val = int(price_match.group(1))
+            p_m, p_d = price_map[val]
+            if months is None:
+                months = p_m
+            if devices is None:
+                devices = p_d
+
+    # 5. Sanitize defaults
     if months not in (1, 3, 6, 12):
-        months = 1
-    if devices < 1:
+        if months is None:
+            months = 1
+        elif months <= 2:
+            months = 1
+        elif months <= 4:
+            months = 3
+        elif months <= 9:
+            months = 6
+        else:
+            months = 12
+
+    if devices is None or devices < 1:
         devices = 1
+    elif devices > 5:
+        devices = 5
+
     return months, devices
 
 
 def parse_phone_number(text: str) -> Optional[str]:
-    """Find a phone number in Sierra Leone or international format."""
+    """Find a phone number in Sierra Leone or international format, tolerating spaces, dashes, dots, and labels."""
+    if not text:
+        return None
+
+    # 1. Check for labeled phone patterns first
+    labeled = re.search(r"(?:phone|tel|number|wa|num|mobile|celular|contacto)[:\s#]+([+0-9\s\.\-]{8,22})", text, re.I)
+    target = labeled.group(1) if labeled else text
+
+    # 2. Check Sierra Leone phone numbers with optional spacing / hyphens
+    sl_match = re.search(r"(?:(?:\+|00)?232[\s\.\-]*)?[0-9]{2}[\s\.\-]*[0-9]{3}[\s\.\-]*[0-9]{3,4}\b", target)
+    if sl_match:
+        digits = re.sub(r"[^\d]", "", sl_match.group(0))
+        if digits.startswith("232") and len(digits) >= 11:
+            return f"+{digits}"
+        if digits.startswith("0") and len(digits) == 9:
+            return f"+232{digits[1:]}"
+        if len(digits) == 8 and digits[0] in "23789":
+            return f"+232{digits}"
+        if len(digits) >= 8 and len(digits) <= 15:
+            return f"+{digits}"
+
+    # 3. Check generic E.164 or international digits
+    intl = re.search(r"(\+?[0-9]{1,4}[\s\.\-]*(?:[0-9]{2,4}[\s\.\-]*){2,4}[0-9]{2,4})", target)
+    if intl:
+        digits = re.sub(r"[^\d]", "", intl.group(1))
+        if len(digits) >= 8:
+            return f"+{digits}" if not digits.startswith("+") else digits
+
+    # 4. Check fallback regex
     m = re.search(r"(\+?232\d{8}|0\d{8}|\d{8,12})", text)
     if m:
         raw = m.group(1)
@@ -768,13 +860,22 @@ def parse_phone_number(text: str) -> Optional[str]:
         if not raw.startswith("+"):
             return f"+{raw}"
         return raw
+
     return None
 
 
 def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict[str, Any]]:
-    """Parse text input into Model 1 Direct Sale or Resubscription arguments."""
+    """Parse text input into Model 1 Direct Sale or Resubscription arguments.
+    
+    Robust and schema-aware: extracts phone number, package, payment method,
+    transaction reference, and customer name in ANY order, with or without commas,
+    labels, or bullet points.
+    """
+    if not text:
+        return None
+
     clean = re.sub(
-        r"^(?:DIRECT\s+SALE|SALE|RENEW|RESUBSCRIBE|RENEWAL)\s*[:,]?\s*",
+        r"^(?:/)?(?:ADMIN\s+)?(?:DIRECT\s+SALE|NEW\s+SALE|RECORD\s+SALE|ADD\s+SALE|SALE|RENEW|RESUBSCRIBE|RENEWAL)\s*[:,]?\s*",
         "",
         text,
         flags=re.IGNORECASE,
@@ -782,71 +883,154 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
     if not clean:
         return None
 
-    # Check if text explicitly uses RENEW or RESUBSCRIBE keywords
-    is_resub = is_renewal or bool(re.search(r"^(?:RENEW|RESUBSCRIBE|RENEWAL)\b", text, re.IGNORECASE))
+    # Check if text explicitly indicates renewal / resubscription
+    is_resub = is_renewal or bool(re.search(r"\b(?:RENEW|RESUBSCRIBE|RENEWAL|RENOVACION|RENOVAR)\b", text, re.IGNORECASE))
 
-    # Comma-separated: Phone, [Name], Package, Method, Ref
-    if "," in clean:
-        parts = [p.strip() for p in clean.split(",") if p.strip()]
-        if len(parts) >= 2:
-            phone = parse_phone_number(parts[0])
-            if phone:
-                # If renewal and format is: Phone, Package, Method, Ref
-                if is_resub and len(parts) in (3, 4) and any(k in parts[1].lower() for k in ("m", "mo", "dev", "month", "device")):
-                    months, devices = parse_package_spec(parts[1])
-                    method = parts[2] if len(parts) >= 3 else "Orange Money"
-                    ref = parts[3] if len(parts) >= 4 else f"REF-{int(time.time())}"
-                    return {
-                        "customer_phone": phone,
-                        "customer_name": "",
-                        "months": months,
-                        "devices": devices,
-                        "payment_method": method,
-                        "payment_reference": ref,
-                        "is_renewal": True,
-                    }
-
-                if len(parts) >= 3:
-                    name = parts[1]
-                    months, devices = parse_package_spec(parts[2])
-                    method = parts[3] if len(parts) >= 4 else "Orange Money"
-                    ref = parts[4] if len(parts) >= 5 else f"REF-{int(time.time())}"
-                    return {
-                        "customer_phone": phone,
-                        "customer_name": name,
-                        "months": months,
-                        "devices": devices,
-                        "payment_method": method,
-                        "payment_reference": ref,
-                        "is_renewal": is_resub,
-                    }
-
-    phone = parse_phone_number(clean)
+    # 1. Extract Phone Number
+    phone = parse_phone_number(clean) or parse_phone_number(text)
     if not phone:
         return None
 
-    months, devices = parse_package_spec(clean)
+    # 2. Extract Payment Method
     clean_lower = clean.lower()
     method = "Orange Money"
-    if "afri" in clean_lower:
+    if re.search(r"\b(?:afri\s*money|afrimoney|africell\s*money|africell|afri|am)\b", clean_lower):
         method = "Afrimoney"
-    elif "bank" in clean_lower:
+    elif re.search(r"\b(?:bank\s*transfer|bank|wire|transfer|transferencia|rokel|slcb|ecobank|uba|zenith|gtbank)\b", clean_lower):
         method = "Bank Transfer"
-    elif "cash" in clean_lower:
+    elif re.search(r"\b(?:cash|efectivo|hand)\b", clean_lower):
         method = "Cash"
+    elif re.search(r"\b(?:qmoney|q\s*money|qm)\b", clean_lower):
+        method = "QMoney"
+    elif re.search(r"\b(?:prepaid\s*wallet|wallet)\b", clean_lower):
+        method = "Prepaid Wallet"
+    elif re.search(r"\b(?:orange\s*money|orangemoney|orange)\b", clean_lower):
+        method = "Orange Money"
 
-    ref = f"REF-{int(time.time())}"
-    tokens = clean.split()
-    for tok in reversed(tokens):
-        if len(tok) >= 4 and any(c.isdigit() for c in tok) and tok not in phone:
-            ref = tok
-            break
+    # 3. Extract Package (Duration & Devices)
+    months, devices = parse_package_spec(clean)
 
-    potential_names = [t for t in tokens if t.isalpha() and t.lower() not in (
-        "direct", "sale", "renew", "resubscribe", "renewal", "orange", "money",
-        "afrimoney", "bank", "cash", "month", "months", "device", "devices", "via", "ref"
-    )]
-    name = " ".join(potential_names[:2]) if potential_names else ("" if is_resub else "Valued Customer")
+    # 4. Extract Reference / Txn ID
+    ref = None
+    ref_match = re.search(r"(?:ref(?:erence)?(?:\s*no\.?|\s*id)?|txn(?:\s*id)?|trans(?:action)?\s*id|id\s*de\s*trans|receipt\s*no\.?|code)[\s:=#]+([a-zA-Z0-9\-_]{4,32})", clean, re.I)
+    if ref_match:
+        ref = ref_match.group(1).strip()
+
+    if not ref:
+        code_match = re.search(r"\b((?:OM|CI|AF|TXN|RCP|PP|BT)[A-Z0-9\-]{4,25})\b", clean, re.I)
+        if code_match and code_match.group(1).upper() not in (phone.upper(), "ORANGEMONEY", "AFRIMONEY"):
+            c_cand = code_match.group(1).strip()
+            if _digits(c_cand) != _digits(phone):
+                ref = c_cand
+
+    if not ref:
+        tokens = [t.strip(",.:;#-()\"'") for t in clean.split()]
+        phone_digits = _digits(phone)
+        for tok in reversed(tokens):
+            tok_lower = tok.lower()
+            tok_digits = _digits(tok)
+            # Never pick customer phone or any phone number as payment reference
+            if tok_digits and (tok_digits == phone_digits or phone_matches(tok, phone)):
+                continue
+            if tok.isdigit() and 8 <= len(tok) <= 15:
+                continue
+            if (
+                len(tok) >= 4 and
+                any(c.isdigit() for c in tok) and
+                not re.match(r"^\d+[mdy]$", tok_lower) and
+                not re.match(r"^\d+dev$", tok_lower) and
+                not re.match(r"^le\d+$", tok_lower) and
+                tok_lower not in ("180", "320", "420", "480", "500", "900", "1200", "1360", "950", "1700", "2250", "2560", "1800", "3200", "4200", "4800")
+            ):
+                ref = tok
+                break
+
+    if not ref:
+        if method == "Cash":
+            ref = f"CASH-{int(time.time())}"
+        else:
+            ref = f"REF-{int(time.time())}"
+
+    # 5. Extract Customer Name
+    name = ""
+    # 5a. If comma-separated, inspect each chunk
+    if "," in clean:
+        parts = [p.strip() for p in clean.split(",") if p.strip()]
+        for p in parts:
+            p_clean = p.strip()
+            # Skip if matches phone
+            if parse_phone_number(p_clean) == phone or re.search(r"\d{7,}", p_clean):
+                continue
+            # Skip if package
+            if any(k in p_clean.lower() for k in ("m", "mo", "dev", "device", "month", "screen", "tv", "pkg", "package", "year", "yr", "annual")) and re.search(r"\d", p_clean):
+                continue
+            # Skip if method
+            if any(m_word in p_clean.lower() for m_word in ("orange", "afri", "bank", "cash", "qmoney", "wallet", "transfer")):
+                continue
+            # Skip if ref
+            if ref and (p_clean == ref or p_clean.lower().startswith("ref") or p_clean.lower().startswith("txn")):
+                continue
+            # If letters, this is the name
+            if any(c.isalpha() for c in p_clean) and len(p_clean) >= 2:
+                name = p_clean
+                break
+
+    # 5b. If name not yet found, check explicit label: name: John Kamara, customer: John Kamara
+    if not name:
+        label_m = re.search(
+            r"(?:name|customer|client|subscriber|cliente|nombre)[:\s]+(.*?)(?=\s*(?:package|pkg|plan|phone|tel|wa|number|method|ref|txn|receipt|code|id)[:\s]|$|,|\n|;)",
+            clean,
+            re.I,
+        )
+        if label_m and label_m.group(1).strip():
+            name = label_m.group(1).strip()
+
+    # 5c. Residual token extraction
+    if not name:
+        text_for_name = clean
+        # Remove phone match
+        phone_raw = re.search(r"(?:(?:\+|00)?232[\s\.\-]*)?[0-9]{2}[\s\.\-]*[0-9]{3}[\s\.\-]*[0-9]{3,4}\b|\b\d{8,15}\b", text_for_name)
+        if phone_raw:
+            text_for_name = text_for_name.replace(phone_raw.group(0), " ")
+        # Remove ref if present
+        if ref and ref in text_for_name and not ref.startswith(("REF-", "CASH-")):
+            text_for_name = text_for_name.replace(ref, " ")
+        # Remove package patterns
+        text_for_name = re.sub(r"\b\d+\s*(?:months?|meses?|mo|m)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b\d+\s*(?:years?|yrs?|y|anos?)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b\d+\s*(?:devices?|dispositivos?|screens?|tvs?|users?|devs?|disp|d)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b\d+[mdy]\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b(?:annual|yearly|quarterly|half[- ]?year|semi[- ]?annual)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b(?:le|sle|nle)?\s*(?:180|320|420|480|500|900|1200|1360|950|1700|2250|2560|1800|3200|4200|4800)\b", " ", text_for_name, flags=re.I)
+        # Remove payment methods
+        text_for_name = re.sub(r"\b(?:orange\s*money|orangemoney|orange|om|afri\s*money|afrimoney|africell|afri|am|bank\s*transfer|bank|transfer|cash|efectivo|qmoney|wallet)\b", " ", text_for_name, flags=re.I)
+        # Remove command keywords and prepositions
+        text_for_name = re.sub(r"\b(?:direct|sale|sales|record|new|add|renew|resubscribe|renewal|activate|wallet|for|to|via|with|paid|ref|txn|phone|name|package|pkg|method)\b", " ", text_for_name, flags=re.I)
+
+        stop_words = {
+            "direct", "sale", "sales", "record", "new", "add", "renew", "resubscribe",
+            "renewal", "activate", "wallet", "for", "to", "via", "with", "paid",
+            "ref", "txn", "phone", "name", "package", "pkg", "method", "month",
+            "months", "year", "years", "device", "devices", "screen", "screens",
+            "tv", "tvs", "user", "users", "dev", "devs", "mes", "meses", "ano", "anos",
+            "plan", "plans", "sub", "subscription", "customer", "client", "renovacion",
+            "renovar", "dispositivo", "dispositivos", "pantalla", "pantallas", "orange",
+            "orangemoney", "afri", "afrimoney", "africell", "bank", "cash", "qmoney",
+        }
+
+        candidate_tokens = [t.strip(",.:;#-()\"'") for t in text_for_name.split() if t.strip(",.:;#-()\"'")]
+        valid_tokens = [
+            t for t in candidate_tokens
+            if any(c.isalpha() for c in t)
+            and len(t) >= 2
+            and t.lower() not in stop_words
+        ]
+        if valid_tokens:
+            name = " ".join(valid_tokens[:3])
+
+    # 5d. Default if name is still empty
+    if not name:
+        name = "" if is_resub else f"Customer {phone[-6:]}"
 
     return {
         "customer_phone": phone,
@@ -860,9 +1044,12 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
 
 
 def parse_wallet_activation_text(text: str, is_renewal: bool = False) -> Optional[dict[str, Any]]:
-    """Parse text input into Model 2 Wallet Activation or Resubscription arguments."""
+    """Parse text input into Model 2 Wallet Activation arguments in any flexible order."""
+    if not text:
+        return None
+
     clean = re.sub(
-        r"^(?:ACTIVATE|WALLET\s+ACTIVATE|WALLET\s+RENEW|WALLET)\s*[:,]?\s*",
+        r"^(?:/)?(?:ADMIN\s+)?(?:ACTIVATE|WALLET\s+ACTIVATE|WALLET\s+RENEW|WALLET)\s*[:,]?\s*",
         "",
         text,
         flags=re.IGNORECASE,
@@ -872,41 +1059,71 @@ def parse_wallet_activation_text(text: str, is_renewal: bool = False) -> Optiona
 
     is_resub = is_renewal or "renew" in text.lower()
 
-    if "," in clean:
-        parts = [p.strip() for p in clean.split(",") if p.strip()]
-        if len(parts) >= 2:
-            phone = parse_phone_number(parts[0])
-            if phone:
-                if is_resub and len(parts) == 2 and any(k in parts[1].lower() for k in ("m", "mo", "dev", "month", "device")):
-                    months, devices = parse_package_spec(parts[1])
-                    return {
-                        "customer_phone": phone,
-                        "customer_name": "",
-                        "months": months,
-                        "devices": devices,
-                        "is_renewal": True,
-                    }
-                name = parts[1]
-                pkg_str = parts[2] if len(parts) >= 3 else "1m 1d"
-                months, devices = parse_package_spec(pkg_str)
-                return {
-                    "customer_phone": phone,
-                    "customer_name": name,
-                    "months": months,
-                    "devices": devices,
-                    "is_renewal": is_resub,
-                }
-
-    phone = parse_phone_number(clean)
+    # 1. Phone
+    phone = parse_phone_number(clean) or parse_phone_number(text)
     if not phone:
         return None
 
+    # 2. Package
     months, devices = parse_package_spec(clean)
-    tokens = clean.split()
-    potential_names = [t for t in tokens if t.isalpha() and t.lower() not in (
-        "activate", "wallet", "renew", "month", "months", "device", "devices", "dev"
-    )]
-    name = " ".join(potential_names[:2]) if potential_names else ("" if is_resub else "Valued Customer")
+
+    # 3. Name
+    name = ""
+    if "," in clean:
+        parts = [p.strip() for p in clean.split(",") if p.strip()]
+        for p in parts:
+            p_clean = p.strip()
+            if parse_phone_number(p_clean) == phone or re.search(r"\d{7,}", p_clean):
+                continue
+            if any(k in p_clean.lower() for k in ("m", "mo", "dev", "device", "month", "screen", "tv", "pkg", "package", "year", "yr", "annual")) and re.search(r"\d", p_clean):
+                continue
+            if any(c.isalpha() for c in p_clean) and len(p_clean) >= 2:
+                name = p_clean
+                break
+
+    if not name:
+        label_m = re.search(
+            r"(?:name|customer|client|subscriber|cliente|nombre)[:\s]+(.*?)(?=\s*(?:package|pkg|plan|phone|tel|wa|number|method|ref|txn|receipt|code|id)[:\s]|$|,|\n|;)",
+            clean,
+            re.I,
+        )
+        if label_m and label_m.group(1).strip():
+            name = label_m.group(1).strip()
+
+    if not name:
+        text_for_name = clean
+        phone_raw = re.search(r"(?:(?:\+|00)?232[\s\.\-]*)?[0-9]{2}[\s\.\-]*[0-9]{3}[\s\.\-]*[0-9]{3,4}\b|\b\d{8,15}\b", text_for_name)
+        if phone_raw:
+            text_for_name = text_for_name.replace(phone_raw.group(0), " ")
+        text_for_name = re.sub(r"\b\d+\s*(?:months?|meses?|mo|m)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b\d+\s*(?:years?|yrs?|y|anos?)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b\d+\s*(?:devices?|dispositivos?|screens?|tvs?|users?|devs?|disp|d)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b\d+[mdy]\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b(?:annual|yearly|quarterly|half[- ]?year|semi[- ]?annual)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b(?:activate|wallet|renew|resubscribe|for|to|phone|name|package|pkg|method)\b", " ", text_for_name, flags=re.I)
+
+        stop_words = {
+            "direct", "sale", "sales", "record", "new", "add", "renew", "resubscribe",
+            "renewal", "activate", "wallet", "for", "to", "via", "with", "paid",
+            "ref", "txn", "phone", "name", "package", "pkg", "method", "month",
+            "months", "year", "years", "device", "devices", "screen", "screens",
+            "tv", "tvs", "user", "users", "dev", "devs", "mes", "meses", "ano", "anos",
+            "plan", "plans", "sub", "subscription", "customer", "client", "renovacion",
+            "renovar", "dispositivo", "dispositivos", "pantalla", "pantallas",
+        }
+
+        candidate_tokens = [t.strip(",.:;#-()\"'") for t in text_for_name.split() if t.strip(",.:;#-()\"'")]
+        valid_tokens = [
+            t for t in candidate_tokens
+            if any(c.isalpha() for c in t)
+            and len(t) >= 2
+            and t.lower() not in stop_words
+        ]
+        if valid_tokens:
+            name = " ".join(valid_tokens[:3])
+
+    if not name:
+        name = "" if is_resub else f"Customer {phone[-6:]}"
 
     return {
         "customer_phone": phone,

@@ -304,10 +304,15 @@ class Agent:
             upper_text.startswith("ACTIVATE ") or
             upper_text.startswith("WALLET ACTIVATE ") or
             upper_text.startswith("DIRECT SALE ") or
+            upper_text.startswith("NEW SALE ") or
+            upper_text.startswith("RECORD SALE ") or
+            upper_text.startswith("ADD SALE ") or
             upper_text.startswith("SALE ") or
             upper_text.startswith("RENEW ") or
             upper_text.startswith("RESUBSCRIBE ") or
-            upper_text.startswith("ADMIN ")
+            upper_text.startswith("RENEWAL ") or
+            upper_text.startswith("ADMIN ") or
+            upper_text.startswith("/ADMIN ")
         )
         is_readonly = upper_text in ("BALANCE", "MY BALANCE", "WALLET BALANCE", "WALLET", "STATUS", "HELP", "TOTALS", "MODELS", "CRM STATS", "STATS")
         if not is_readonly and not is_new_command and conv.draft and conv.draft.get("pending_crm_action"):
@@ -1167,10 +1172,18 @@ class Agent:
                 )
                 return True
 
-        if upper.startswith("DIRECT SALE ") or upper.startswith("SALE ") or upper.startswith("RENEW ") or upper.startswith("RESUBSCRIBE "):
+        sale_verbs = (
+            "DIRECT SALE ", "DIRECT_SALE ", "DIRECT-SALE ",
+            "NEW SALE ", "NEW_SALE ",
+            "RECORD SALE ", "RECORD_SALE ",
+            "ADD SALE ", "ADD_SALE ",
+            "SALE ",
+            "RENEW ", "RESUBSCRIBE ", "RENEWAL ",
+        )
+        if any(upper.startswith(v) for v in sale_verbs):
             reseller = self.reseller_mgr.identify_reseller(wa_id)
             if reseller:
-                is_renewal = upper.startswith("RENEW ") or upper.startswith("RESUBSCRIBE ")
+                is_renewal = any(upper.startswith(v) for v in ("RENEW ", "RESUBSCRIBE ", "RENEWAL "))
                 return self._handle_fast_direct_sale(conv, reseller, text, is_renewal=is_renewal)
             else:
                 self._send_text(
@@ -1396,9 +1409,21 @@ class Agent:
         parsed = parse_direct_sale_text(text, is_renewal=is_renewal)
         if not parsed:
             if is_renewal:
-                self._send_text(conv.wa_id, "Format: `RENEW <phone> <package> <method> <ref>`\nExample: `RENEW 076123456 1m 1dev OrangeMoney OM1234`")
+                self._send_text(
+                    conv.wa_id,
+                    "⚠️ Could not detect a valid customer phone number for renewal.\n\n"
+                    "Please send the customer phone and renewal package, for example:\n"
+                    "• `RENEW 076123456 1m 1dev Orange Money OM1234`\n"
+                    "• `RENEW 076123456 3 months`",
+                )
             else:
-                self._send_text(conv.wa_id, "Format: `DIRECT SALE <phone> <name> <package> <method> <ref>`\nExample: `DIRECT SALE 076123456 Foday Koroma 1m 1dev OrangeMoney OM1234`")
+                self._send_text(
+                    conv.wa_id,
+                    "⚠️ Could not detect a valid customer phone number in your sale details.\n\n"
+                    "Please send customer details in any flexible order, for example:\n"
+                    "• `DIRECT SALE 076123456 Foday Koroma 1m 1dev Orange Money OM1234`\n"
+                    "• `DIRECT SALE Foday Koroma 076123456 3 months Afrimoney`",
+                )
             return True
 
         # Build Confirmation Block before writing to CRM

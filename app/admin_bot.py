@@ -156,8 +156,15 @@ class AdminBotManager:
             upper in admin_shortcuts or
             upper.startswith("CRM ") or
             upper.startswith("SALE ") or
+            upper.startswith("DIRECT SALE ") or
+            upper.startswith("NEW SALE ") or
+            upper.startswith("RECORD SALE ") or
+            upper.startswith("ADD SALE ") or
             upper.startswith("RENEW ") or
-            upper.startswith("RESUBSCRIBE ")
+            upper.startswith("RESUBSCRIBE ") or
+            upper.startswith("RENEWAL ") or
+            upper.startswith("ACTIVATE ") or
+            upper.startswith("WALLET ACTIVATE ")
         )
 
         if not (is_explicit_admin or is_shortcut):
@@ -275,17 +282,28 @@ class AdminBotManager:
         if upper.startswith("BACKUP"):
             return self._cmd_backup()
 
-        # 17. ADMIN SALE <phone>, <name>, <package>, <method>, <ref>
-        if upper.startswith("SALE"):
-            parts = clean.split(maxsplit=1)
-            arg = parts[1] if len(parts) > 1 else ""
-            return self._cmd_sale(arg, is_renewal=False)
+        # 17. ADMIN SALE / DIRECT SALE / NEW SALE / RECORD SALE / ADD SALE
+        sale_prefixes = (
+            "DIRECT SALE", "DIRECT_SALE", "DIRECT-SALE",
+            "NEW SALE", "NEW_SALE",
+            "RECORD SALE", "RECORD_SALE",
+            "ADD SALE", "ADD_SALE",
+            "SALE",
+        )
+        for prefix in sale_prefixes:
+            if upper.startswith(prefix):
+                arg = re.sub(f"^{prefix}\\s*[:,]?\\s*", "", clean, flags=re.IGNORECASE).strip()
+                return self._cmd_sale(arg, is_renewal=False)
 
-        # 18. ADMIN RENEW <phone>, <package>, <method>, <ref>
-        if upper.startswith("RENEW") or upper.startswith("RESUBSCRIBE"):
-            parts = clean.split(maxsplit=1)
-            arg = parts[1] if len(parts) > 1 else ""
-            return self._cmd_sale(arg, is_renewal=True)
+        # 18. ADMIN RENEW / RESUBSCRIBE / RENEWAL
+        renew_prefixes = (
+            "RESUBSCRIBE", "RESUBSCRIPTION",
+            "RENEWAL", "RENEW", "RENOVAR", "RENOVACION",
+        )
+        for prefix in renew_prefixes:
+            if upper.startswith(prefix):
+                arg = re.sub(f"^{prefix}\\s*[:,]?\\s*", "", clean, flags=re.IGNORECASE).strip()
+                return self._cmd_sale(arg, is_renewal=True)
 
         # 19. ADMIN CRM <subcommand>
         if upper.startswith("CRM"):
@@ -709,29 +727,54 @@ class AdminBotManager:
     # =========================================================================
 
     def _cmd_sale(self, arg: str, is_renewal: bool = False) -> str:
+        if not arg or not arg.strip():
+            if is_renewal:
+                return (
+                    "ℹ️ *NexgloTV Direct Renewal Command*\n\n"
+                    "You can record a renewal in any flexible format:\n"
+                    "• `ADMIN RENEW 076123456, 1mo 1dev, Orange Money, OM778899`\n"
+                    "• `ADMIN RENEW 076123456 1 month Orange Money OM1234`\n"
+                    "• `ADMIN RENEW +23278999888 3 months Afrimoney`\n\n"
+                    "The bot automatically identifies customer phone, renewal package, payment method, and reference!"
+                )
+            return (
+                "ℹ️ *NexgloTV Direct Sale Command*\n\n"
+                "You can record a sale in any flexible format (commas, spaces, or labels):\n"
+                "• `ADMIN SALE 076123456, John Kamara, 1mo 1dev, Orange Money, OM123456`\n"
+                "• `ADMIN SALE 076123456 John Kamara 1m 1d Orange Money OM123456`\n"
+                "• `ADMIN SALE John Kamara 076123456 3 months Afrimoney`\n"
+                "• `ADMIN SALE +23278999888 Fatmata Sesay 1 year cash`\n\n"
+                "The bot automatically identifies customer phone, package, payment method, reference, and name in ANY order!"
+            )
+
         parsed = parse_direct_sale_text(arg, is_renewal=is_renewal)
         if not parsed:
             if is_renewal:
                 return (
-                    "⚠️ Invalid direct renewal arguments.\n\n"
+                    "⚠️ Could not detect a valid customer phone number for renewal.\n\n"
                     "Usage:\n"
-                    "• `ADMIN RENEW <phone>, <package>, <method>, <reference>`\n"
-                    "• `ADMIN RENEW <phone>, <name>, <package>, <method>, <reference>`\n\n"
-                    "Example:\n"
-                    "• `ADMIN RENEW 076123456, 1mo 1dev, Orange Money, OM778899`\n"
-                    "• `ADMIN RENEW +23278999888, 3mo 2dev, Afrimoney, AF554433`"
+                    "• `ADMIN RENEW <phone> <package> <method> <reference>`\n\n"
+                    "Examples:\n"
+                    "• `ADMIN RENEW 076123456 1m 1dev Orange Money OM778899`\n"
+                    "• `ADMIN RENEW +23278999888 3 months Afrimoney`"
                 )
             else:
                 return (
-                    "⚠️ Invalid direct sale arguments.\n\n"
+                    "⚠️ Could not detect a valid customer phone number in your instruction.\n\n"
                     "Usage:\n"
                     "• `ADMIN SALE <phone>, <name>, <package>, <method>, <reference>`\n\n"
-                    "Example:\n"
-                    "• `ADMIN SALE 076123456, John Kamara, 1mo 1dev, Orange Money, OM123456`\n"
-                    "• `ADMIN SALE +23278999888, Fatmata Sesay, 3mo 2dev, Bank Transfer, BT98765`"
+                    "Examples in any order:\n"
+                    "• `ADMIN SALE 076123456 John Kamara 1m 1d Orange Money OM123456`\n"
+                    "• `ADMIN SALE John Kamara 076123456 3 months 2 devices Afrimoney AF554433`\n"
+                    "• `ADMIN SALE +23278999888 Fatmata Sesay 1 year cash`"
                 )
 
-        is_resub = is_renewal or parsed.get("is_renewal", False)
+        phone = parsed["customer_phone"]
+        existing = self._get_customer(phone)
+        is_resub = is_renewal or parsed.get("is_renewal", False) or (existing is not None)
+        if existing and (not parsed.get("customer_name") or parsed.get("customer_name").startswith("Customer ")):
+            parsed["customer_name"] = existing.name or parsed.get("customer_name")
+
         # Validate commercial parameters
         is_valid, err = validate_sale_inputs(
             customer_phone=parsed["customer_phone"],
