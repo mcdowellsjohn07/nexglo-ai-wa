@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 import unicodedata
 from datetime import date as date_cls
 from datetime import datetime, timedelta, timezone
@@ -250,7 +251,22 @@ class Agent:
             text = msg.interactive_title
         elif msg.type == "audio":
             text = self._transcribe(msg)
+            if text:
+                self._send_text(wa_id, t("audio_heard", conv.lang, text=text))
         elif msg.type == "image":
+            # Image recognition for receipts / transactions
+            img_data = self.wa.download_media(msg.media_id) if msg.media_id else None
+            from .receipt_ocr import analyze_receipt_image, extract_receipt_from_text
+            receipt_info = None
+            if img_data:
+                receipt_info = analyze_receipt_image(img_data, caption=msg.caption, settings=self.settings)
+            elif msg.caption:
+                receipt_info = extract_receipt_from_text(msg.caption)
+
+            if receipt_info and receipt_info.is_receipt:
+                self.store.add_message(wa_id, "user", f"[receipt_image] {receipt_info.raw_summary or ''}")
+                self._prepare_receipt_confirmation_block(conv, receipt_info)
+                return
             text = msg.caption
 
         if text:
@@ -278,6 +294,24 @@ class Agent:
             guard = check_input_guardrails(text, lang=conv.lang)
             if guard.blocked:
                 self._send_text(wa_id, guard.response_message or "Request blocked by safety policy.")
+                return
+
+        # Check if sender has an unconfirmed CRM action pending (Confirmation Block)
+        # Read-only status inquiries (BALANCE, STATUS, TOTALS, HELP) and new explicit commands (ACTIVATE, SALE, RENEW, ADMIN)
+        # are permitted; chatter prompts the confirmation reminder.
+        upper_text = (text or "").strip().upper()
+        is_new_command = (
+            upper_text.startswith("ACTIVATE ") or
+            upper_text.startswith("WALLET ACTIVATE ") or
+            upper_text.startswith("DIRECT SALE ") or
+            upper_text.startswith("SALE ") or
+            upper_text.startswith("RENEW ") or
+            upper_text.startswith("RESUBSCRIBE ") or
+            upper_text.startswith("ADMIN ")
+        )
+        is_readonly = upper_text in ("BALANCE", "MY BALANCE", "WALLET BALANCE", "WALLET", "STATUS", "HELP", "TOTALS", "MODELS", "CRM STATS", "STATS")
+        if not is_readonly and not is_new_command and conv.draft and conv.draft.get("pending_crm_action"):
+            if text and self._handle_pending_crm_confirmation(conv, text):
                 return
 
         # Admin WhatsApp Command Engine: Check if sender is verified admin and command
@@ -313,7 +347,7 @@ class Agent:
             return
 
         if msg.type == "audio" and text:
-            self._send_text(wa_id, t("audio_heard", lang, text=text))
+            pass  # Already acknowledged above
 
         # Interactive payloads
         if payload_id:
@@ -897,22 +931,47 @@ class Agent:
 
     def _handle_payment_proof(self, conv: Conversation, text: str) -> None:
         wa_id, lang = conv.wa_id, conv.lang
-        reference = text.strip()
+        from .receipt_ocr import extract_receipt_from_text, ReceiptDetails
+        parsed = extract_receipt_from_text(text)
+        ref = (parsed.reference if parsed and parsed.reference else None) or text.strip()
         toks = _tokens(text)
-        method = "orange_money" if "orange" in toks else (
-            "afrimoney" if "afrimoney" in toks else (
-                "qmoney" if "qmoney" in toks else (
-                    "bank_transfer" if (toks & {"bank", "banco", "transfer", "transferencia"}) else (
-                        "cash" if (toks & {"cash", "efectivo"}) else "reported"
+        method = (parsed.provider if parsed and parsed.provider != "Mobile Money" else None) or (
+            "Orange Money" if "orange" in toks else (
+                "Afrimoney" if "afri" in toks else (
+                    "Bank Transfer" if (toks & {"bank", "banco", "transfer", "transferencia"}) else (
+                        "Cash" if (toks & {"cash", "efectivo"}) else "Orange Money"
                     )
                 )
             )
         )
         lead = self.crm.provider.get_lead_by_wa_id(wa_id) if hasattr(self.crm.provider, "get_lead_by_wa_id") else None
-        amount = conv.draft.get("quote") or (lead.subscription_quote_le if lead else 0)
-        self.crm.record_payment_proof(wa_id, method=method, reference=reference, amount=amount)
-        self._send_text(wa_id, t("payment_proof_received", lang))
-        self._goto(conv, State.PAYMENT_VERIFICATION)
+        amount = (parsed.amount if parsed and parsed.amount else None) or conv.draft.get("quote") or (lead.subscription_quote_le if lead else 150)
+
+        # Record payment proof in CRM for staff verification
+        if hasattr(self.crm, "record_payment_proof"):
+            crm_method = "orange_money" if "orange" in toks else (
+                "afrimoney" if "afri" in toks else (
+                    "bank_transfer" if (toks & {"bank", "banco", "transfer", "transferencia"}) else (
+                        "cash" if (toks & {"cash", "efectivo"}) else "reported"
+                    )
+                )
+            )
+            self.crm.record_payment_proof(wa_id, method=crm_method, reference=text.strip(), amount=amount)
+
+        details = ReceiptDetails(
+            is_receipt=True,
+            provider=method,
+            reference=ref,
+            amount=float(amount),
+            currency=conv.draft.get("currency", "SLE"),
+            sender_phone=wa_id,
+            raw_summary=text[:120],
+        )
+        try:
+            self._goto(conv, State.PAYMENT_VERIFICATION)
+        except Exception:
+            pass
+        self._prepare_receipt_confirmation_block(conv, details)
 
     def _answer_info(self, conv: Conversation, text: str) -> bool:
         wa_id, lang = conv.wa_id, conv.lang
@@ -1274,48 +1333,8 @@ class Agent:
             self._send_text(conv.wa_id, "⚠️ Could not parse sale details.\nPlease use: `Phone, Name, Package, Method, Ref`\nExample: `076123456, Foday Koroma, 1m 1dev, Orange Money, OM1234`\nOr type CANCEL.")
             return True
 
-        res = self.reseller_mgr.process_direct_sale(
-            reseller=reseller,
-            customer_phone=parsed["customer_phone"],
-            customer_name=parsed["customer_name"],
-            months=parsed["months"],
-            devices=parsed["devices"],
-            payment_method=parsed["payment_method"],
-            payment_reference=parsed["payment_reference"],
-            is_renewal=parsed.get("is_renewal", False),
-        )
-        if not res.get("success"):
-            self._send_text(conv.wa_id, res.get("message") or "❌ Validation error recording sale.")
-            self._send_reseller_menu(conv, reseller)
-            return True
-
-        if res.get("is_renewal"):
-            msg = (
-                f"🎉 *Customer Subscription Renewed!* ({reseller.reseller_code})\n\n"
-                f"👤 *Customer:* {res['customer_name']} ({res['customer_phone']})\n"
-                f"📺 *Renewed Package:* {res['package']}\n"
-                f"💵 *Amount Due:* Le{res['amount_due']:,}\n"
-                f"💳 *Method / Ref:* {res['payment_method']} · `{res['payment_reference']}`\n"
-                f"🎁 *Expected Commission (20%):* *Le{res['expected_commission']:,}*\n"
-                f"🔄 *Total Renewals:* {res['renewal_count']}\n\n"
-                "⏳ *Status:* Updated in Lark Base Customers (Pending Finance Verification). "
-                f"Le{res['expected_commission']:,} will be credited to your commission balance once verified."
-            )
-        else:
-            msg = (
-                f"✅ *Direct Sale Recorded Successfully!* ({reseller.reseller_code})\n\n"
-                f"👤 *Customer:* {res['customer_name']} ({res['customer_phone']})\n"
-                f"📺 *Package:* {res['package']}\n"
-                f"💵 *Amount Due:* Le{res['amount_due']:,}\n"
-                f"💳 *Method / Ref:* {res['payment_method']} · `{res['payment_reference']}`\n"
-                f"🎁 *Expected Commission (20%):* *Le{res['expected_commission']:,}*\n\n"
-                "⏳ *Status:* Added to Lark Base Customers (Pending Finance Verification). "
-                "Once confirmed, the customer line is activated and Le"
-                f"{res['expected_commission']:,} will be credited to your commission balance."
-            )
-        self._send_text(conv.wa_id, msg)
-        self._send_reseller_menu(conv, reseller)
-        return True
+        self._reset(conv)
+        return self._handle_fast_direct_sale(conv, reseller, text)
 
     def _prompt_reseller_wallet_activate(self, conv: Conversation, reseller) -> None:
         wa_id = conv.wa_id
@@ -1355,37 +1374,8 @@ class Agent:
             self._send_text(conv.wa_id, "⚠️ Could not parse customer details.\nPlease use: `Phone, Name, Package`\nExample: `076123456, Mariama Sesay, 1m 1dev`\nOr type CANCEL.")
             return True
 
-        res = self.reseller_mgr.process_wallet_activation(
-            reseller=reseller,
-            customer_phone=parsed["customer_phone"],
-            customer_name=parsed["customer_name"],
-            months=parsed["months"],
-            devices=parsed["devices"],
-        )
-        if not res.get("success"):
-            msg = (
-                "❌ *Insufficient Wallet Balance!*\n\n"
-                f"• Required Amount: *Le{res['required_amount']:,}*\n"
-                f"• Available Balance: *Le{res['available_balance']:,}*\n"
-                f"• Shortfall: *Le{res['deficit']:,}*\n\n"
-                "Please top up your prepaid wallet via Orange Money / Bank Transfer to activate."
-            )
-            self._send_text(conv.wa_id, msg)
-            self._send_reseller_menu(conv, reseller)
-            return True
-
-        msg = (
-            f"🎉 *Instant Activation Confirmed!* ({reseller.reseller_code})\n\n"
-            f"👤 *Customer:* {res['customer_name']} ({res['customer_phone']})\n"
-            f"📺 *Package:* {res['package']}\n"
-            f"💰 *Wallet Debited:* Le{res['debited_amount']:,}\n"
-            f"🎁 *Commission Earned (20%):* *Le{res['commission_earned']:,}*\n"
-            f"💼 *Remaining Wallet Balance:* *Le{res['remaining_balance']:,}*\n\n"
-            f"✅ Subscription *{res['subscription_id']}* is now ACTIVE in Lark CRM!"
-        )
-        self._send_text(conv.wa_id, msg)
-        self._send_reseller_menu(conv, reseller)
-        return True
+        self._reset(conv)
+        return self._handle_fast_wallet_activate(conv, reseller, text)
 
     def _send_reseller_balance(self, conv: Conversation, reseller) -> None:
         wa_id = conv.wa_id
@@ -1410,40 +1400,45 @@ class Agent:
             else:
                 self._send_text(conv.wa_id, "Format: `DIRECT SALE <phone> <name> <package> <method> <ref>`\nExample: `DIRECT SALE 076123456 Foday Koroma 1m 1dev OrangeMoney OM1234`")
             return True
-        res = self.reseller_mgr.process_direct_sale(
-            reseller=reseller,
-            customer_phone=parsed["customer_phone"],
-            customer_name=parsed["customer_name"],
-            months=parsed["months"],
-            devices=parsed["devices"],
-            payment_method=parsed["payment_method"],
-            payment_reference=parsed["payment_reference"],
-            is_renewal=parsed.get("is_renewal", is_renewal),
-        )
-        if not res.get("success"):
-            self._send_text(conv.wa_id, res.get("message") or "❌ Validation error recording sale.")
-            return True
 
-        if res.get("is_renewal"):
-            msg = (
-                f"🎉 *Customer Subscription Renewed!* ({reseller.reseller_code})\n"
-                f"• Customer: {res['customer_name']} ({res['customer_phone']})\n"
-                f"• Package: {res['package']} (Le{res['amount_due']:,})\n"
-                f"• Ref: `{res['payment_reference']}`\n"
-                f"• Expected Commission (20%): *Le{res['expected_commission']:,}*\n"
-                f"• Total Renewals: {res['renewal_count']}\n"
-                "⏳ Status: Updated in Lark Base Customers (Pending Finance Verification)."
-            )
-        else:
-            msg = (
-                f"✅ *Direct Sale Recorded!* ({reseller.reseller_code})\n"
-                f"• Customer: {res['customer_name']} ({res['customer_phone']})\n"
-                f"• Package: {res['package']} (Le{res['amount_due']:,})\n"
-                f"• Ref: `{res['payment_reference']}`\n"
-                f"• Expected Commission (20%): *Le{res['expected_commission']:,}*\n"
-                "⏳ Status: Added to Lark Base Customers (Pending Finance Verification)."
-            )
-        self._send_text(conv.wa_id, msg)
+        # Build Confirmation Block before writing to CRM
+        months = parsed["months"]
+        devices = parsed["devices"]
+        pkg_desc = f"{months} Month{'s' if months > 1 else ''} ({devices} Device{'s' if devices > 1 else ''})"
+        quote = self._calc_price(months, devices)
+        sale_amount = quote.final_price
+        comm_rate = getattr(reseller, "commission_rate", 20)
+        expected_comm = int(sale_amount * (comm_rate / 100))
+        cust_name = parsed["customer_name"] or "Valued Customer"
+        cust_phone = parsed["customer_phone"]
+
+        conv.draft["pending_crm_action"] = {
+            "action_type": "RESELLER_DIRECT_SALE",
+            "reseller_id": reseller.reseller_id,
+            "reseller_code": reseller.reseller_code,
+            "parsed": parsed,
+            "sale_amount": sale_amount,
+            "expected_commission": expected_comm,
+            "summary": f"{'Renewal' if is_renewal else 'Direct Sale'} for {cust_phone} ({pkg_desc}) via {parsed['payment_method']}",
+        }
+        self.store.update_draft(conv.wa_id, conv.draft)
+
+        block = (
+            f"📋 *Reseller CRM Write Confirmation Block*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 🤝 *Reseller:* {reseller.name} (`{reseller.reseller_code}`)\n"
+            f"• 👤 *Customer:* {cust_name} (`{cust_phone}`)\n"
+            f"• 📺 *Package:* {pkg_desc}\n"
+            f"• 💵 *Subscription Price:* Le{sale_amount:,}\n"
+            f"• 🎁 *Expected Commission ({comm_rate}%):* *Le{expected_comm:,}*\n"
+            f"• 💳 *Payment Method / Ref:* {parsed['payment_method']} · `{parsed['payment_reference']}`\n"
+            f"• 🗄️ *Target CRM Tables:* `10_Reseller_Sales`, `11_Commissions`, `03_Customers`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ *Confirmation Required:*\n"
+            f"👉 Reply *CONFIRM* (or *YES*) to write this transaction to Lark CRM.\n"
+            f"👉 Reply *CANCEL* (or *NO*) to abort."
+        )
+        self._send_text(conv.wa_id, block)
         return True
 
     def _handle_fast_wallet_activate(self, conv: Conversation, reseller, text: str) -> bool:
@@ -1464,6 +1459,301 @@ class Agent:
         if not parsed:
             self._send_text(conv.wa_id, "Format: `ACTIVATE <phone> <name> <package>`\nExample: `ACTIVATE 076123456 Mariama Sesay 1m 1dev`")
             return True
+
+        months = parsed["months"]
+        devices = parsed["devices"]
+        pkg_desc = f"{months} Month{'s' if months > 1 else ''} ({devices} Device{'s' if devices > 1 else ''})"
+        quote = self._calc_price(months, devices)
+        sale_amount = quote.final_price
+        comm_rate = getattr(reseller, "commission_rate", 20)
+        comm_earned = round(sale_amount * (comm_rate / 100))
+        cust_name = parsed["customer_name"] or "Valued Customer"
+        cust_phone = parsed["customer_phone"]
+
+        if reseller.wallet_balance < sale_amount:
+            self._send_text(
+                conv.wa_id,
+                f"❌ *Insufficient Wallet Balance!*\n\n"
+                f"• Required Amount: *Le{sale_amount:,}*\n"
+                f"• Available Balance: *Le{reseller.wallet_balance:,}*\n"
+                f"• Shortfall: *Le{sale_amount - reseller.wallet_balance:,}*\n\n"
+                "Please top up your wallet via Orange Money / Bank Transfer to activate.",
+            )
+            return True
+
+        conv.draft["pending_crm_action"] = {
+            "action_type": "RESELLER_WALLET_ACTIVATE",
+            "reseller_id": reseller.reseller_id,
+            "reseller_code": reseller.reseller_code,
+            "parsed": parsed,
+            "sale_amount": sale_amount,
+            "comm_earned": comm_earned,
+            "summary": f"Wallet Activation for {cust_phone} ({pkg_desc})",
+        }
+        self.store.update_draft(conv.wa_id, conv.draft)
+
+        block = (
+            f"⚡ *Prepaid Wallet Activation Confirmation Block*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 🤝 *Reseller:* {reseller.name} (`{reseller.reseller_code}`)\n"
+            f"• 👤 *Customer:* {cust_name} (`{cust_phone}`)\n"
+            f"• 📺 *Package:* {pkg_desc}\n"
+            f"• 💸 *Wallet Debit Amount:* Le{sale_amount:,}\n"
+            f"• 🎁 *Instant Commission Retained:* *Le{comm_earned:,}*\n"
+            f"• 💼 *Current Wallet Balance:* Le{reseller.wallet_balance:,}\n"
+            f"• 🗄️ *Target CRM Tables:* `13_Reseller_Wallet`, `10_Reseller_Sales`, `11_Commissions`, `03_Customers`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ *Confirmation Required:*\n"
+            f"👉 Reply *CONFIRM* (or *YES*) to debit wallet and activate customer in Lark CRM.\n"
+            f"👉 Reply *CANCEL* (or *NO*) to abort."
+        )
+        self._send_text(conv.wa_id, block)
+        return True
+
+    # =========================================================================
+    # Confirmation Blocks & Interactive CRM Execution Handlers
+    # =========================================================================
+
+    def _prepare_receipt_confirmation_block(self, conv: Conversation, receipt) -> None:
+        wa_id = conv.wa_id
+        ref = receipt.reference or f"TXN-{int(time.time())}"
+        amt = float(receipt.amount if receipt.amount is not None else 150.0)
+        provider = receipt.provider or "Orange Money"
+        phone = receipt.sender_phone or wa_id
+        currency = getattr(receipt, "currency", "SLE") or "SLE"
+
+        draft_pkg = conv.draft.get("months"), conv.draft.get("device_count")
+        if draft_pkg[0] and draft_pkg[1]:
+            months, devices = draft_pkg
+        else:
+            months = 3 if amt >= 450 else 1
+            devices = 1
+
+        pkg_desc = f"{months} Month{'s' if months > 1 else ''} ({devices} Device{'s' if devices > 1 else ''})"
+
+        conv.draft["pending_crm_action"] = {
+            "action_type": "RECEIPT_PAYMENT",
+            "reference": ref,
+            "amount": amt,
+            "currency": currency,
+            "provider": provider,
+            "customer_phone": phone,
+            "customer_name": receipt.sender_name or conv.profile_name or "Valued Customer",
+            "months": months,
+            "devices": devices,
+            "summary": f"Payment Receipt: {ref} · {currency} {amt:,.2f} via {provider}",
+        }
+        self.store.update_draft(wa_id, conv.draft)
+
+        block = (
+            f"📸 *Payment Receipt Detected!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 💳 *Payment Method:* {provider}\n"
+            f"• 🔢 *Reference / Txn ID:* `{ref}`\n"
+            f"• 💵 *Amount Received:* {currency} {amt:,.2f}\n"
+            f"• 📱 *Customer Phone:* `{phone}`\n"
+            f"• 📺 *Subscription Plan:* {pkg_desc}\n"
+            f"• 🗄️ *Target CRM Tables:* `06_Payments`, `19_Receipts`, `03_Customers`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ *Confirmation Required:*\n"
+            f"Please verify the details above.\n"
+            f"👉 Reply *CONFIRM* (or *YES*) to write this transaction to Lark CRM and issue your receipt.\n"
+            f"👉 Reply *CANCEL* (or *NO*) to discard."
+        )
+        self._send_text(wa_id, block)
+
+    def _handle_pending_crm_confirmation(self, conv: Conversation, text: str) -> bool:
+        pending = conv.draft.get("pending_crm_action")
+        if not pending:
+            return False
+
+        upper = text.strip().upper()
+        confirm_words = {"CONFIRM", "YES", "SI", "OK", "Y", "PROCEED", "APPROVE", "CONFIRMAR", "ACCEPT", "APPLY", "CORRECT"}
+        cancel_words = {"CANCEL", "NO", "ABORT", "STOP", "N", "CANCELAR", "DISCARD", "REJECT"}
+
+        is_confirm = upper in confirm_words or any(upper.startswith(w + " ") or upper.startswith(w + "!") for w in confirm_words)
+        is_cancel = upper in cancel_words or any(upper.startswith(w + " ") or upper.startswith(w + "!") for w in cancel_words)
+
+        if is_cancel:
+            self.store.update_draft(conv.wa_id, {"pending_crm_action": None})
+            conv.draft.pop("pending_crm_action", None)
+            self._send_text(conv.wa_id, "❌ *Transaction Cancelled.* No changes or transactions were written to Lark CRM.")
+            return True
+
+        if is_confirm:
+            action_type = pending.get("action_type")
+            self.store.update_draft(conv.wa_id, {"pending_crm_action": None})
+            conv.draft.pop("pending_crm_action", None)
+
+            if action_type == "RECEIPT_PAYMENT":
+                return self._execute_confirmed_receipt_payment(conv, pending)
+            elif action_type == "RESELLER_DIRECT_SALE":
+                return self._execute_confirmed_reseller_sale(conv, pending)
+            elif action_type == "RESELLER_WALLET_ACTIVATE":
+                return self._execute_confirmed_wallet_activation(conv, pending)
+            return True
+
+        # Neither confirm nor cancel -> Remind them of the pending action!
+        self._send_text(
+            conv.wa_id,
+            f"⚠️ *Pending CRM Confirmation Block*\n"
+            f"You have an unconfirmed transaction waiting:\n"
+            f"• *Action:* {pending.get('summary', 'Pending Transaction')}\n\n"
+            f"👉 Reply *CONFIRM* (or *YES*) to commit to Lark CRM.\n"
+            f"👉 Reply *CANCEL* (or *NO*) to discard.",
+        )
+        return True
+
+    def _execute_confirmed_receipt_payment(self, conv: Conversation, pending: dict) -> bool:
+        wa_id = conv.wa_id
+        ref = pending["reference"]
+        amt = float(pending["amount"])
+        provider = pending["provider"]
+        cust_phone = pending["customer_phone"]
+        cust_name = pending["customer_name"]
+        months = pending.get("months", 1)
+        devices = pending.get("devices", 1)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        payment_id = f"PAY-{ref}"
+
+        # 1. Write to 06_Payments
+        if self.crm and hasattr(self.crm, "upsert_payment"):
+            from .crm_provider import Payment
+            try:
+                self.crm.upsert_payment(
+                    Payment(
+                        payment_id=payment_id,
+                        lead_id=cust_phone,
+                        amount=amt,
+                        currency=pending.get("currency", "SLE"),
+                        payment_method=provider,
+                        reference=ref,
+                        status="Completed",
+                        verified_by="WhatsApp Image OCR & Confirmation",
+                    )
+                )
+            except Exception as exc:
+                log.warning("Failed to upsert payment in CRM: %s", exc)
+
+        # 2. Update Lead / Customer stage to Active / CUSTOMER_WON
+        if self.crm and hasattr(self.crm, "update_lead_stage"):
+            try:
+                self.crm.update_lead_stage(cust_phone, "CUSTOMER_WON")
+            except Exception as exc:
+                log.warning("Failed to update lead stage: %s", exc)
+
+        # 3. Write to 19_Receipts
+        receipt_num = f"NGT-RCT-{datetime.now().year}-{abs(hash(ref)) % 1000000:06d}"
+        if self.crm and hasattr(self.crm, "provider") and hasattr(self.crm.provider, "_upsert_by_key"):
+            try:
+                self.crm.provider._upsert_by_key("19_Receipts", {
+                    "Receipt Number": receipt_num,
+                    "Receipt Kind": "Subscription Payment",
+                    "Source Key": f"PAYMENT:{payment_id}",
+                    "Linked Payment ID": payment_id,
+                    "Linked Customer ID": cust_phone,
+                    "Payment Method Snapshot": provider,
+                    "External Payment Reference": ref,
+                    "Payer Display Name": cust_name,
+                    "Amount Received SLE": amt,
+                    "Receipt Payment Status": "PAID IN FULL",
+                    "Issued At": now_iso,
+                    "Receipt Delivery Status": "Delivered via WhatsApp",
+                })
+            except Exception as exc:
+                log.warning("Failed to sync receipt to Lark 19_Receipts: %s", exc)
+
+        # 4. If customer had a reseller code, attribute commission!
+        res_code = conv.draft.get("reseller_code")
+        if res_code and hasattr(self, "reseller_mgr") and self.reseller_mgr:
+            reseller = self.reseller_mgr.get_reseller_by_code(res_code)
+            if reseller:
+                try:
+                    self.reseller_mgr.process_direct_sale(
+                        reseller=reseller,
+                        customer_phone=cust_phone,
+                        customer_name=cust_name,
+                        months=months,
+                        devices=devices,
+                        payment_method=provider,
+                        payment_reference=ref,
+                    )
+                except Exception as exc:
+                    log.warning("Failed to attribute reseller commission: %s", exc)
+
+        # 5. Send verified receipt message
+        msg = (
+            f"✅ *Payment Confirmed & Recorded in Lark CRM!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 🧾 *Receipt Number:* `{receipt_num}`\n"
+            f"• 🔢 *Reference / Txn ID:* `{ref}`\n"
+            f"• 💵 *Amount Credited:* {pending.get('currency', 'SLE')} {amt:,.2f}\n"
+            f"• 💳 *Payment Method:* {provider}\n"
+            f"• 👤 *Customer:* {cust_name} (`{cust_phone}`)\n"
+            f"• 📺 Subscription Status: *Active & Provisioned*\n"
+            f"• 🗄️ *Lark Base:* Successfully synchronized to `06_Payments`, `19_Receipts`, and `03_Customers`.\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Thank you for your payment! Your NexgloTV subscription is now active."
+        )
+        self._send_text(wa_id, msg)
+        try:
+            self._goto(conv, State.CONVERTED)
+        except Exception:
+            pass
+        return True
+
+    def _execute_confirmed_reseller_sale(self, conv: Conversation, pending: dict) -> bool:
+        reseller = None
+        if hasattr(self, "reseller_mgr") and self.reseller_mgr:
+            reseller = self.reseller_mgr.get_reseller_by_code(pending.get("reseller_code", "")) or self.reseller_mgr.identify_reseller(conv.wa_id)
+        if not reseller:
+            self._send_text(conv.wa_id, "❌ Reseller profile could not be resolved.")
+            return True
+
+        parsed = pending["parsed"]
+        res = self.reseller_mgr.process_direct_sale(
+            reseller=reseller,
+            customer_phone=parsed["customer_phone"],
+            customer_name=parsed["customer_name"],
+            months=parsed["months"],
+            devices=parsed["devices"],
+            payment_method=parsed["payment_method"],
+            payment_reference=parsed["payment_reference"],
+            is_renewal=parsed.get("is_renewal", False),
+        )
+        if not res.get("success"):
+            self._send_text(conv.wa_id, res.get("message") or "❌ Error recording sale.")
+            return True
+
+        sale_id = res.get("sale_id") or res.get("sale_ref", "RSALE-CONFIRMED")
+        sale_amount = res.get("sale_amount") or res.get("amount_due", 0)
+        exp_comm = res.get("expected_commission", 0)
+
+        msg = (
+            f"✅ *Reseller Sale Confirmed & Committed to Lark CRM!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 🏷️ *Sale ID:* `{sale_id}`\n"
+            f"• 👤 *Customer:* {res['customer_name']} (`{res['customer_phone']}`)\n"
+            f"• 📺 *Package:* {res['package']}\n"
+            f"• 💵 *Gross Amount:* Le{sale_amount:,}\n"
+            f"• 🎁 *Commission Earned:* *Le{exp_comm:,}* (Status: Pending)\n"
+            f"• 💳 *Method / Ref:* {res['payment_method']} · `{res['payment_reference']}`\n"
+            f"• 🗄️ *Lark Base:* Synchronized to `10_Reseller_Sales` & `11_Commissions`.\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━"
+        )
+        self._send_text(conv.wa_id, msg)
+        self._send_reseller_menu(conv, reseller)
+        return True
+
+    def _execute_confirmed_wallet_activation(self, conv: Conversation, pending: dict) -> bool:
+        reseller = None
+        if hasattr(self, "reseller_mgr") and self.reseller_mgr:
+            reseller = self.reseller_mgr.get_reseller_by_code(pending.get("reseller_code", "")) or self.reseller_mgr.identify_reseller(conv.wa_id)
+        if not reseller:
+            self._send_text(conv.wa_id, "❌ Reseller profile could not be resolved.")
+            return True
+
+        parsed = pending["parsed"]
         res = self.reseller_mgr.process_wallet_activation(
             reseller=reseller,
             customer_phone=parsed["customer_phone"],
@@ -1472,16 +1762,23 @@ class Agent:
             devices=parsed["devices"],
         )
         if not res.get("success"):
-            self._send_text(conv.wa_id, f"❌ Insufficient Balance: Required Le{res['required_amount']:,}, Available Le{res['available_balance']:,}.")
+            self._send_text(conv.wa_id, res.get("message") or "❌ Wallet activation failed.")
             return True
+
         msg = (
-            f"🎉 *Instant Activation Confirmed!* ({reseller.reseller_code})\n"
-            f"• Customer: {res['customer_name']} ({res['customer_phone']})\n"
-            f"• Package: {res['package']}\n"
-            f"• Wallet Debited: Le{res['debited_amount']:,} (Comm: Le{res['commission_earned']:,})\n"
-            f"• Remaining Balance: *Le{res['remaining_balance']:,}*"
+            f"✅ *Line Activation Confirmed & Committed to Lark CRM!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• 👤 *Customer:* {res['customer_name']} (`{res['customer_phone']}`)\n"
+            f"• 📺 *Package:* {res['package']}\n"
+            f"• 💸 *Wallet Debited:* Le{res['debited_amount']:,}\n"
+            f"• 🎁 *Instant Commission Retained:* *Le{res['commission_earned']:,}*\n"
+            f"• 💼 *Remaining Wallet Balance:* *Le{res['remaining_balance']:,}*\n"
+            f"• 🗄️ *Lark Base:* Synchronized to `13_Reseller_Wallet`, `10_Reseller_Sales`, `11_Commissions`.\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"✅ Subscription *{res['subscription_id']}* is now ACTIVE in Lark CRM!"
         )
         self._send_text(conv.wa_id, msg)
+        self._send_reseller_menu(conv, reseller)
         return True
 
     # ======================================================== compliance

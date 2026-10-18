@@ -260,11 +260,24 @@ def test_agent_reseller_chat_flow():
     agent.handle_message(inbound_act)
     history = agent.store.history(test_reseller_phone, limit=2)
     last_reply = history[-1]["content"]
-    assert "Instant Activation Confirmed" in last_reply
-    assert "Wallet Debited: Le180" in last_reply
-    assert "Remaining Balance" in last_reply and "Le320" in last_reply
+    assert "Prepaid Wallet Activation Confirmation Block" in last_reply
+    assert "Wallet Debit Amount" in last_reply and "Le180" in last_reply
 
-    # 3. Partner submits Model 1 Direct Sale
+    # Partner confirms activation
+    inbound_act_conf = InboundMessage(
+        message_id="msg_2b_conf",
+        wa_id=test_reseller_phone,
+        type="text",
+        text="CONFIRM",
+    )
+    agent.handle_message(inbound_act_conf)
+    history = agent.store.history(test_reseller_phone, limit=4)
+    all_replies = "\n---\n".join(h["content"] for h in history)
+    assert "Line Activation Confirmed" in all_replies
+    assert "Wallet Debited" in all_replies and "Le180" in all_replies
+    assert "Remaining Wallet Balance" in all_replies and "Le320" in all_replies
+
+    # 3. Partner submits Model 1 Direct Sale -> receives Confirmation Block
     inbound_sale = InboundMessage(
         message_id="msg_3",
         wa_id=test_reseller_phone,
@@ -274,9 +287,23 @@ def test_agent_reseller_chat_flow():
     agent.handle_message(inbound_sale)
     history = agent.store.history(test_reseller_phone, limit=2)
     last_reply = history[-1]["content"]
-    assert "Direct Sale Recorded" in last_reply
+    assert "Reseller CRM Write Confirmation Block" in last_reply
+    assert "Subscription Price" in last_reply and "Le180" in last_reply
     assert "Expected Commission" in last_reply and "Le36" in last_reply
-    assert "Pending Finance Verification" in last_reply
+
+    # Partner confirms direct sale
+    inbound_sale_conf = InboundMessage(
+        message_id="msg_3_conf",
+        wa_id=test_reseller_phone,
+        type="text",
+        text="CONFIRM",
+    )
+    agent.handle_message(inbound_sale_conf)
+    history = agent.store.history(test_reseller_phone, limit=4)
+    all_replies = "\n---\n".join(h["content"] for h in history)
+    assert "Reseller Sale Confirmed" in all_replies
+    assert "Gross Amount" in all_replies and "Le180" in all_replies
+    assert "Commission Earned" in all_replies and "Le36" in all_replies
 
 
 def test_reseller_security_phone_spoof_rejected(manager):

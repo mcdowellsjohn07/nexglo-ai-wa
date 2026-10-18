@@ -81,6 +81,7 @@ TRANSITIONS: dict[str, set[str]] = {
         State.COMPATIBILITY_CHECK, State.HUMAN, State.REFERRAL,
         State.TRIAL_REQUESTED, State.RENEWAL, State.LOST,
         State.RESELLER_MENU, State.RESELLER_DIRECT_SALE, State.RESELLER_WALLET_ACTIVATE,
+        State.PAYMENT_VERIFICATION, State.CONVERTED,
     },
     State.RESELLER_MENU: {
         State.IDLE, State.HUMAN, State.RESELLER_DIRECT_SALE, State.RESELLER_WALLET_ACTIVATE,
@@ -93,9 +94,11 @@ TRANSITIONS: dict[str, set[str]] = {
     },
     State.PRICES_SENT: {
         State.PACKAGE_SELECTED, State.FAQ_ONLY, State.IDLE, State.HUMAN,
+        State.PAYMENT_VERIFICATION, State.CONVERTED,
     },
     State.PACKAGE_SELECTED: {
         State.PAYMENT_READINESS, State.PRICES_SENT, State.IDLE, State.HUMAN,
+        State.PAYMENT_VERIFICATION, State.CONVERTED,
     },
     State.PAYMENT_READINESS: {
         State.DEVICE_SELECTED, State.DEVICE_MODEL, State.PACKAGE_SELECTED, State.IDLE, State.HUMAN,

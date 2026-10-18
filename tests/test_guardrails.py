@@ -299,5 +299,17 @@ def test_disabled_wallet_model_in_agent_and_manager(tmp_path):
     agent.handle_message(msg_sale)
     history = agent.store.history(reseller_phone, limit=2)
     sale_reply = history[-1]["content"]
-    assert "Direct Sale Recorded" in sale_reply
+    assert "Reseller CRM Write Confirmation Block" in sale_reply
     assert "Expected Commission" in sale_reply
+
+    # Partner confirms direct sale to write to CRM
+    msg_sale_conf = InboundMessage(
+        message_id="msg_res_sale_conf",
+        wa_id=reseller_phone,
+        type="text",
+        text="CONFIRM",
+    )
+    agent.handle_message(msg_sale_conf)
+    history = agent.store.history(reseller_phone, limit=3)
+    all_replies = "\n".join(m["content"] for m in history)
+    assert "Reseller Sale Confirmed" in all_replies
