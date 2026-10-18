@@ -79,6 +79,47 @@ def _iso(dt: Optional[datetime]) -> str:
     return dt.isoformat(timespec="seconds") if dt else ""
 
 
+TABLE_DATETIME_FIELDS: dict[str, set[str]] = {
+    table: {f["name"] for f in fields if f.get("type") == "datetime"}
+    for table, fields in FIELD_SCHEMAS.items()
+}
+
+
+def _to_lark_timestamp(val: Any) -> Optional[int]:
+    """Convert string/datetime/numeric timestamps to Lark Base REST required ms integer."""
+    if val is None or val == "":
+        return None
+    if isinstance(val, (int, float)):
+        if val > 100_000_000_000:
+            return int(val)
+        return int(val * 1000)
+    if isinstance(val, datetime):
+        if not val.tzinfo:
+            val = val.replace(tzinfo=timezone.utc)
+        return int(val.timestamp() * 1000)
+    s = str(val).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return _to_lark_timestamp(int(s))
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
+    except Exception:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
+        try:
+            dt = datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            pass
+    return None
+
+
 class LarkCLIError(RuntimeError):
     pass
 
@@ -687,6 +728,30 @@ class LarkBaseCRMProvider(CRMProvider):
                 resolved.pop(col, None)
         return resolved
 
+    def _normalize_fields_for_rest(self, table: str, fields: dict) -> dict:
+        """Ensure field types and link structures conform to Lark Base REST API spec.
+
+        - Converts datetime fields to millisecond integer timestamps.
+        - Converts link fields from [{'id': 'rec...'}] to ['rec...'].
+        - Drops None and empty string values.
+        """
+        clean: dict[str, Any] = {}
+        dt_fields = TABLE_DATETIME_FIELDS.get(table, set())
+        for k, v in fields.items():
+            if v is None or v == "":
+                continue
+            if k in dt_fields:
+                ts = _to_lark_timestamp(v)
+                if ts is not None:
+                    clean[k] = ts
+            elif isinstance(v, list) and v and isinstance(v[0], dict) and "id" in v[0]:
+                clean[k] = [item["id"] for item in v if isinstance(item, dict) and "id" in item]
+            elif isinstance(v, list) and v and isinstance(v[0], dict) and "record_id" in v[0]:
+                clean[k] = [item["record_id"] for item in v if isinstance(item, dict) and "record_id" in item]
+            else:
+                clean[k] = v
+        return clean
+
     def _upsert_by_key(self, table: str, fields: dict) -> tuple[bool, str]:
         tid = self._table_id(table)
         key = TABLE_KEY_FIELD[table]
@@ -719,14 +784,15 @@ class LarkBaseCRMProvider(CRMProvider):
                     fields[key] = existing_key
 
         if self.rest_client:
+            rest_fields = self._normalize_fields_for_rest(table, fields)
             try:
                 if rid:
-                    self.rest_client.batch_update_records(tid, {rid: fields})
+                    self.rest_client.batch_update_records(tid, {rid: rest_fields})
                     if wa_field and fields.get(wa_field):
                         self._wa_cache.setdefault(table, {})[_digits(str(fields[wa_field]))] = key_value
                     self._id_cache.setdefault(table, {})[key_value] = rid
                     return True, key_value
-                created = self.rest_client.batch_create_records(tid, [fields])
+                created = self.rest_client.batch_create_records(tid, [rest_fields])
                 if created and isinstance(created, list):
                     first = created[0]
                     new_rid = first.get("record_id", "") if isinstance(first, dict) else str(first)
@@ -775,8 +841,9 @@ class LarkBaseCRMProvider(CRMProvider):
         fields = self._resolve_links(table, fields)
         fields = {k: v for k, v in fields.items() if v is not None}
         if self.rest_client:
+            rest_fields = self._normalize_fields_for_rest(table, fields)
             try:
-                created = self.rest_client.batch_create_records(tid, [fields])
+                created = self.rest_client.batch_create_records(tid, [rest_fields])
                 if created and isinstance(created, list):
                     first = created[0]
                     new_rid = first.get("record_id", "") if isinstance(first, dict) else str(first)
@@ -900,69 +967,72 @@ class LarkBaseCRMProvider(CRMProvider):
         summary = f"[Summary: {' | '.join(extras)}]"
         return f"{clean_base} | {summary}" if clean_base else summary
 
+    def _build_lead_cols(self, lead: LeadRecord) -> tuple[dict[str, Any], str]:
+        wa_key = _digits(lead.wa_id)
+        existing = self._lead_records.get(wa_key)
+        if existing and existing.lead_id:
+            lead.lead_id = existing.lead_id
+        elif not lead.lead_id or not str(lead.lead_id).startswith("LEAD-"):
+            existing_lead_id = self._wa_cache.get("01_Leads", {}).get(wa_key)
+            if existing_lead_id:
+                lead.lead_id = existing_lead_id
+            else:
+                lead.lead_id = self._gen_id("01_Leads")
+        if not getattr(lead, "created_at", None):
+            lead.created_at = lead.first_contact_at or _iso(_now())
+        cols: dict[str, Any] = {}
+        for src, dst in self._LEAD_MAP.items():
+            val = getattr(lead, src, None)
+            if val in (None, ""):
+                continue
+            if dst in ("First Contact At", "Last Contact At", "Next Follow Up", "Created At"):
+                val = self._as_iso(val)
+            cols[dst] = val
+        if "Created At" not in cols:
+            cols["Created At"] = self._as_iso(lead.created_at or lead.first_contact_at or _iso(_now()))
+        if lead.months and lead.device_count:
+            pkg_id = package_id_for(lead.months, lead.device_count)
+            if pkg_id:
+                cols["Interested Package ID"] = pkg_id
+        if lead.trial_requested and not cols.get("Trial Outcome"):
+            cols["Trial Outcome"] = "requested"
+        extras = []
+        if lead.months:
+            extras.append(f"Quote: {lead.months}mo x {lead.device_count or '?'}dev")
+        if lead.subscription_quote_le:
+            extras.append(f"Total: Le{lead.subscription_quote_le:,} ({lead.discount_pct or 0}% off, {lead.quote_version or 'v1'})")
+        if lead.app_name:
+            extras.append(f"App: {lead.app_name}")
+        if lead.app_url_sent:
+            extras.append(lead.app_url_sent)
+        if lead.app_installed_reported:
+            extras.append("App INSTALLED (reported)")
+        if lead.ready_to_pay_after_setup:
+            extras.append("Ready to pay after setup")
+        if lead.trial_requested:
+            extras.append("Trial requested")
+        if lead.trial_offered:
+            extras.append("Trial offered")
+        if lead.handoff_status:
+            extras.append(f"Handoff: {lead.handoff_status}")
+        if lead.staff_setup_verified:
+            extras.append("Setup verified by staff")
+        if lead.payment_status:
+            extras.append(f"Payment: {lead.payment_status}")
+        if lead.visit_fee_quote_le:
+            extras.append(f"Visit fee quoted: Le{lead.visit_fee_quote_le:,}")
+        if lead.referrer_code:
+            extras.append(f"RefCode: {lead.referrer_code}")
+        merged_notes = self._merge_notes(cols.get("Lead Notes", ""), extras)
+        if merged_notes:
+            cols["Lead Notes"] = merged_notes
+        if lead.opted_out:
+            cols["Lead Stage"] = "OPTED_OUT"
+        return cols, wa_key
+
     def upsert_lead(self, lead: LeadRecord) -> bool:
         with self._lock:
-            wa_key = _digits(lead.wa_id)
-            existing = self._lead_records.get(wa_key)
-            if existing and existing.lead_id:
-                lead.lead_id = existing.lead_id
-            elif not lead.lead_id or not str(lead.lead_id).startswith("LEAD-"):
-                existing_rid = self._find_by_wa("01_Leads", lead.wa_id)
-                existing_lead_id = self._wa_cache.get("01_Leads", {}).get(wa_key)
-                if existing_lead_id:
-                    lead.lead_id = existing_lead_id
-                else:
-                    lead.lead_id = self._gen_id("01_Leads")
-            if not getattr(lead, "created_at", None):
-                lead.created_at = lead.first_contact_at or _iso(_now())
-            cols: dict[str, Any] = {}
-            for src, dst in self._LEAD_MAP.items():
-                val = getattr(lead, src, None)
-                if val in (None, ""):
-                    continue
-                if dst in ("First Contact At", "Last Contact At", "Next Follow Up", "Created At"):
-                    val = self._as_iso(val)
-                cols[dst] = val
-            if "Created At" not in cols:
-                cols["Created At"] = self._as_iso(lead.created_at or lead.first_contact_at or _iso(_now()))
-            if lead.months and lead.device_count:
-                pkg_id = package_id_for(lead.months, lead.device_count)
-                if pkg_id:
-                    cols["Interested Package ID"] = pkg_id
-            if lead.trial_requested and not cols.get("Trial Outcome"):
-                cols["Trial Outcome"] = "requested"
-            extras = []
-            if lead.months:
-                extras.append(f"Quote: {lead.months}mo x {lead.device_count or '?'}dev")
-            if lead.subscription_quote_le:
-                extras.append(f"Total: Le{lead.subscription_quote_le:,} ({lead.discount_pct or 0}% off, {lead.quote_version or 'v1'})")
-            if lead.app_name:
-                extras.append(f"App: {lead.app_name}")
-            if lead.app_url_sent:
-                extras.append(lead.app_url_sent)
-            if lead.app_installed_reported:
-                extras.append("App INSTALLED (reported)")
-            if lead.ready_to_pay_after_setup:
-                extras.append("Ready to pay after setup")
-            if lead.trial_requested:
-                extras.append("Trial requested")
-            if lead.trial_offered:
-                extras.append("Trial offered")
-            if lead.handoff_status:
-                extras.append(f"Handoff: {lead.handoff_status}")
-            if lead.staff_setup_verified:
-                extras.append("Setup verified by staff")
-            if lead.payment_status:
-                extras.append(f"Payment: {lead.payment_status}")
-            if lead.visit_fee_quote_le:
-                extras.append(f"Visit fee quoted: Le{lead.visit_fee_quote_le:,}")
-            if lead.referrer_code:
-                extras.append(f"RefCode: {lead.referrer_code}")
-            merged_notes = self._merge_notes(cols.get("Lead Notes", ""), extras)
-            if merged_notes:
-                cols["Lead Notes"] = merged_notes
-            if lead.opted_out:
-                cols["Lead Stage"] = "OPTED_OUT"
+            cols, wa_key = self._build_lead_cols(lead)
             ok, key_val = self._upsert_by_key("01_Leads", cols)
             if ok and key_val:
                 lead.lead_id = key_val
@@ -970,6 +1040,111 @@ class LarkBaseCRMProvider(CRMProvider):
                     self._wa_cache.setdefault("01_Leads", {})[wa_key] = key_val
                     self._lead_records[wa_key] = lead
             return ok
+
+    def batch_upsert_leads(self, leads: list[LeadRecord]) -> tuple[int, int, str]:
+        """Bulk upsert leads with batching for high performance and zero timeout."""
+        with self._lock:
+            if not self.rest_client:
+                synced = 0
+                errors = 0
+                last_err = ""
+                for l in leads:
+                    try:
+                        if self.upsert_lead(l):
+                            synced += 1
+                    except Exception as e:
+                        errors += 1
+                        last_err = str(e)
+                return synced, errors, last_err
+
+            tid = self._table_id("01_Leads")
+            self._load_cache("01_Leads")
+            key_field = TABLE_KEY_FIELD["01_Leads"]
+            wa_field = TABLE_WA_FIELD["01_Leads"]
+
+            updates: dict[str, dict] = {}
+            creates: list[dict] = []
+            lead_map_for_update: dict[str, tuple[LeadRecord, str]] = {}
+            lead_map_for_create: list[tuple[LeadRecord, str, str]] = []
+
+            for lead in leads:
+                try:
+                    cols, wa_key = self._build_lead_cols(lead)
+                    fields = self._ensure_ids("01_Leads", cols)
+                    fields = map_record("01_Leads", fields)
+                    key_value = str(fields.get(key_field, ""))
+                    if not key_value:
+                        continue
+                    fields = self._resolve_links("01_Leads", fields)
+                    fields = {k: v for k, v in fields.items() if v is not None}
+                    rid = self._find_by_key("01_Leads", key_value)
+                    wa_val = str(fields.get(wa_field) or "")
+                    if not rid and wa_val:
+                        existing_rid = self._find_by_wa("01_Leads", wa_val)
+                        if existing_rid:
+                            rid = existing_rid
+                            existing_key = self._wa_cache.get("01_Leads", {}).get(_digits(wa_val))
+                            if existing_key:
+                                key_value = existing_key
+                                fields[key_field] = existing_key
+
+                    rest_fields = self._normalize_fields_for_rest("01_Leads", fields)
+                    if rid:
+                        updates[rid] = rest_fields
+                        lead_map_for_update[rid] = (lead, key_value)
+                    else:
+                        creates.append(rest_fields)
+                        lead_map_for_create.append((lead, key_value, wa_key))
+                except Exception as exc:
+                    log.error("Failed preparing lead for batch: %s", exc)
+
+            synced = 0
+            errors = 0
+            last_err = ""
+
+            # Execute batch updates (chunked by 500)
+            if updates:
+                items = list(updates.items())
+                for i in range(0, len(items), 500):
+                    chunk = dict(items[i:i+500])
+                    try:
+                        self.rest_client.batch_update_records(tid, chunk)
+                        for rid in chunk.keys():
+                            ld, kv = lead_map_for_update[rid]
+                            ld.lead_id = kv
+                            self._id_cache.setdefault("01_Leads", {})[kv] = rid
+                            if ld.wa_id:
+                                self._wa_cache.setdefault("01_Leads", {})[_digits(ld.wa_id)] = kv
+                                self._lead_records[_digits(ld.wa_id)] = ld
+                            synced += 1
+                    except Exception as e:
+                        errors += len(chunk)
+                        last_err = str(e)
+                        log.error("Batch update chunk failed: %s", e)
+
+            # Execute batch creates (chunked by 500)
+            if creates:
+                for i in range(0, len(creates), 500):
+                    chunk = creates[i:i+500]
+                    map_chunk = lead_map_for_create[i:i+500]
+                    try:
+                        res = self.rest_client.batch_create_records(tid, chunk)
+                        for idx, item in enumerate(res):
+                            new_rid = item.get("record_id", "") if isinstance(item, dict) else str(item)
+                            ld, kv, wa_key = map_chunk[idx]
+                            ld.lead_id = kv
+                            if new_rid:
+                                self._id_cache.setdefault("01_Leads", {})[kv] = new_rid
+                            if wa_key:
+                                self._wa_cache.setdefault("01_Leads", {})[wa_key] = kv
+                                self._lead_records[wa_key] = ld
+                            synced += 1
+                    except Exception as e:
+                        errors += len(chunk)
+                        last_err = str(e)
+                        log.error("Batch create chunk failed: %s", e)
+
+            return synced, errors, last_err
 
     def get_lead_by_wa_id(self, wa_id: str) -> Optional[LeadRecord]:
         with self._lock:

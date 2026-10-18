@@ -624,26 +624,32 @@ class AdminBotManager:
                     rows = [dict(r) for r in con.execute(sql).fetchall()]
 
             from app.crm_sheets import LeadRecord
-            synced = 0
-            last_err = ""
-            for r in rows:
+            leads: list[LeadRecord] = []
+            for idx, r in enumerate(rows):
                 wa = str(r.get("wa_id") or "").strip()
                 if not wa:
                     continue
-                lead = LeadRecord(
-                    lead_id=f"LEAD-SYNC-{int(time.time())}-{synced}",
+                leads.append(LeadRecord(
+                    lead_id=f"LEAD-SYNC-{int(time.time())}-{idx}",
                     wa_id=wa,
                     phone_e164=normalize_phone_sl(wa),
                     name=r.get("profile_name") or f"WhatsApp Contact {wa[-4:]}",
                     source="whatsapp",
                     lead_stage="ACTIVE_CHAT",
                     last_message_at=str(r.get("last_user_at") or r.get("updated_at") or ""),
-                )
-                try:
-                    if provider.upsert_lead(lead):
-                        synced += 1
-                except Exception as e:
-                    last_err = str(e)
+                ))
+
+            synced = 0
+            last_err = ""
+            if hasattr(provider, "batch_upsert_leads"):
+                synced, errors, last_err = provider.batch_upsert_leads(leads)
+            else:
+                for lead in leads:
+                    try:
+                        if provider.upsert_lead(lead):
+                            synced += 1
+                    except Exception as e:
+                        last_err = str(e)
 
             if synced > 0:
                 return f"✅ *Lark CRM Sync Complete!*\nSynchronized {synced} customer records to Lark Base `01_Leads`."

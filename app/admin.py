@@ -372,6 +372,8 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
         "trial_requested": "TRIAL_REQUESTED", "trial_approval": "TRIAL_REQUESTED",
         "trial_active": "TRIAL_ACTIVE", "opted_out": "OPTED_OUT", "lost": "LOST", "renewal": "RENEWAL",
     }
+    leads_to_sync: list[LeadRecord] = []
+    lead_row_map: dict[str, dict] = {}
     for r in rows:
         wa_id = str(r.get("wa_id") or "").strip()
         if not wa_id:
@@ -412,14 +414,27 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
             referrer_code=str(draft.get("referrer_code") or draft.get("ref_code") or ""),
             reseller_code=str(draft.get("reseller_code") or ""),
         )
-        try:
-            if crm_provider.upsert_lead(lead):
-                synced += 1
-                if lead.lead_id and lead.lead_id != r.get("lead_id"):
-                    desk.store.set_lead_id(wa_id, lead.lead_id)
-        except Exception as exc:
-            errors += 1
-            last_err = str(exc)
+        leads_to_sync.append(lead)
+        lead_row_map[wa_id] = r
+
+    if hasattr(crm_provider, "batch_upsert_leads"):
+        synced, errors, last_err = crm_provider.batch_upsert_leads(leads_to_sync)
+        for lead in leads_to_sync:
+            orig = lead_row_map.get(lead.wa_id, {})
+            if lead.lead_id and lead.lead_id != orig.get("lead_id"):
+                desk.store.set_lead_id(lead.wa_id, lead.lead_id)
+    else:
+        for lead in leads_to_sync:
+            wa_id = lead.wa_id
+            orig = lead_row_map.get(wa_id, {})
+            try:
+                if crm_provider.upsert_lead(lead):
+                    synced += 1
+                    if lead.lead_id and lead.lead_id != orig.get("lead_id"):
+                        desk.store.set_lead_id(wa_id, lead.lead_id)
+            except Exception as exc:
+                errors += 1
+                last_err = str(exc)
 
     if synced == 0 and errors > 0:
         raise HTTPException(
