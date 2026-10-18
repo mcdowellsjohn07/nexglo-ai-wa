@@ -1146,6 +1146,34 @@ class LarkBaseCRMProvider(CRMProvider):
 
             return synced, errors, last_err
 
+    def get_table_counts(self) -> dict[str, int]:
+        """Fetch live record totals across primary Lark Base tables in parallel."""
+        counts: dict[str, int] = {}
+        if not self.rest_client:
+            return counts
+        from concurrent.futures import ThreadPoolExecutor
+
+        target_tables = [
+            "01_Leads", "02_Free_Trials", "03_Customers", "05_Subscriptions",
+            "06_Payments", "07_Installations", "09_Resellers", "10_Reseller_Sales",
+            "11_Commissions", "19_Receipts"
+        ]
+
+        def _fetch(name: str) -> tuple[str, int]:
+            tid = self._table_ids.get(name) or KNOWN_TABLE_IDS.get(name)
+            if not tid:
+                return name, 0
+            try:
+                data = self.rest_client.list_records(tid, limit=1)
+                return name, int(data.get("total") or 0)
+            except Exception:
+                return name, 0
+
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            for name, total in ex.map(_fetch, target_tables):
+                counts[name] = total
+        return counts
+
     def get_lead_by_wa_id(self, wa_id: str) -> Optional[LeadRecord]:
         with self._lock:
             wa_key = _digits(wa_id)

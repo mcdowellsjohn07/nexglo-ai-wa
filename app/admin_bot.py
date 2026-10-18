@@ -151,7 +151,7 @@ class AdminBotManager:
 
         # Check if text is intended as an admin instruction
         is_explicit_admin = upper.startswith("ADMIN") or upper.startswith("/ADMIN")
-        admin_shortcuts = {"STATUS", "MODELS", "HANDOFFS", "SYNC CRM", "ADMIN HELP", "CRM STATS"}
+        admin_shortcuts = {"STATUS", "MODELS", "HANDOFFS", "SYNC CRM", "ADMIN HELP", "CRM STATS", "STATS", "TOTALS", "CRM TOTALS"}
         is_shortcut = (
             upper in admin_shortcuts or
             upper.startswith("CRM ") or
@@ -193,6 +193,10 @@ class AdminBotManager:
         # 2. ADMIN STATUS
         if upper in ("STATUS", "INFO", "HEALTH"):
             return self._cmd_status()
+
+        # 2b. ADMIN TOTALS / STATS / METRICS
+        if upper in ("TOTALS", "STATS", "METRICS", "CRM STATS", "CRM TOTALS"):
+            return self._cmd_crm_stats()
 
         # 3. ADMIN MODEL
         if upper.startswith("MODEL"):
@@ -1040,17 +1044,34 @@ class AdminBotManager:
         pay_count = 0
         resellers_count = 0
         handoff_count = 0
+        sales_count = 0
+        comm_count = 0
+        sub_count = 0
+        trials_count = 0
+        receipts_count = 0
 
         if self.crm and hasattr(self.crm, "provider"):
             p = self.crm.provider
-            if hasattr(p, "leads") and isinstance(p.leads, dict):
+            if hasattr(p, "get_table_counts"):
+                counts = p.get_table_counts()
+                if counts:
+                    leads_count = counts.get("01_Leads", 0)
+                    cust_count = counts.get("03_Customers", 0)
+                    pay_count = counts.get("06_Payments", 0)
+                    resellers_count = counts.get("09_Resellers", 0)
+                    sales_count = counts.get("10_Reseller_Sales", 0)
+                    comm_count = counts.get("11_Commissions", 0)
+                    sub_count = counts.get("05_Subscriptions", 0)
+                    trials_count = counts.get("02_Free_Trials", 0)
+                    receipts_count = counts.get("19_Receipts", 0)
+            if not leads_count and hasattr(p, "leads") and isinstance(p.leads, dict):
                 leads_count = len(p.leads)
-            if hasattr(p, "customers") and isinstance(p.customers, dict):
+            if not cust_count and hasattr(p, "customers") and isinstance(p.customers, dict):
                 cust_count = len(p.customers)
-            if hasattr(p, "payments") and isinstance(p.payments, list):
+            if not pay_count and hasattr(p, "payments") and isinstance(p.payments, list):
                 pay_count = len(p.payments)
 
-        if self.reseller_mgr:
+        if not resellers_count and self.reseller_mgr:
             resellers_count = len(getattr(self.reseller_mgr, "_resellers_by_code", {}))
 
         if self.store and hasattr(self.store, "list_conversations"):
@@ -1063,10 +1084,15 @@ class AdminBotManager:
 
         return (
             f"📊 *NexgloTV Lark CRM & Operations Summary*\n\n"
-            f"• 🎯 Total Leads: *{leads_count}*\n"
-            f"• 👤 Active Customers: *{cust_count}*\n"
-            f"• 💳 Recorded Payments: *{pay_count}*\n"
-            f"• 🤝 Registered Resellers: *{resellers_count}*\n"
+            f"• 🎯 Total Leads: *{leads_count}* (`01_Leads`)\n"
+            f"• 👤 Active Customers: *{cust_count}* (`03_Customers`)\n"
+            f"• 📦 Subscriptions: *{sub_count}* (`05_Subscriptions`)\n"
+            f"• 💳 Recorded Payments: *{pay_count}* (`06_Payments`)\n"
+            f"• 🧾 Receipts Issued: *{receipts_count}* (`19_Receipts`)\n"
+            f"• 🆓 Free Trials: *{trials_count}* (`02_Free_Trials`)\n"
+            f"• 🤝 Registered Resellers: *{resellers_count}* (`09_Resellers`)\n"
+            f"• 📈 Reseller Sales: *{sales_count}* (`10_Reseller_Sales`)\n"
+            f"• 💰 Reseller Commissions: *{comm_count}* (`11_Commissions`)\n"
             f"• 🚨 Pending Handoffs: *{handoff_count}*\n"
             f"• 🛡️ Authorized Admins: *{admin_count}*\n\n"
             f"🔗 Lark Base ID: `E8jObNOAeaZqUHsyxRHjR9VcpBg`\n"
