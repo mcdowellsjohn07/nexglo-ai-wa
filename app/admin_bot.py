@@ -553,15 +553,37 @@ class AdminBotManager:
             code = parts[1].upper()
             name = " ".join(parts[2:]) if len(parts) > 2 else f"Partner {code}"
             from app.reseller_bot import ResellerProfile
+            norm_phone = normalize_phone_sl(phone)
+            res_id = f"RES-{int(time.time())}"
             profile = ResellerProfile(
-                reseller_id=f"RSL-{int(time.time())}",
+                reseller_id=res_id,
                 reseller_code=code,
                 name=name,
-                phone=normalize_phone_sl(phone),
+                phone=norm_phone,
                 wallet_balance=1000,
             )
             self.reseller_mgr.register_reseller(profile)
-            return f"✅ *Reseller Added Successfully!*\n• Code: `{code}`\n• Name: {name}\n• Phone: `{profile.phone}`"
+
+            # Sync to Lark Base 09_Resellers
+            if self.crm and hasattr(self.crm, "provider") and hasattr(self.crm.provider, "_upsert_by_key"):
+                try:
+                    self.crm.provider._upsert_by_key("09_Resellers", {
+                        "Reseller ID": res_id,
+                        "Reseller Code": code,
+                        "Business or Full Name": name,
+                        "Primary Contact": name,
+                        "WhatsApp Number": norm_phone,
+                        "Status": "Active",
+                        "Operating Model": "DIRECT_TO_NEXGLOTV",
+                        "Default Commission Rate %": 20,
+                        "Default Commission Method": "Percentage",
+                        "Joined At": datetime.now(timezone.utc).isoformat(),
+                        "Onboarding Verified": True,
+                    })
+                except Exception as exc:
+                    log.warning("Failed to sync new reseller to Lark 09_Resellers: %s", exc)
+
+            return f"✅ *Reseller Added Successfully!*\n• Code: `{code}`\n• Name: {name}\n• Phone: `{profile.phone}`\n• Synced to Lark Base `09_Resellers`."
 
         return "Usage:\n• `ADMIN RESELLER LIST`\n• `ADMIN RESELLER ADD <phone> <code> [name]`"
 

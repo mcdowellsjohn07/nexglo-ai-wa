@@ -201,17 +201,17 @@ class ResellerBotManager:
             try:
                 row = self.crm_provider._get_by_wa("09_Resellers", wa_id)
                 if row:
-                    res_phone = str(row.get("Phone Number") or row.get("Phone") or wa_id)
+                    res_phone = str(row.get("WhatsApp Number") or row.get("Phone Number") or row.get("Phone") or wa_id)
                     # Strict security check: phone must match sender
                     if phone_matches(wa_id, res_phone):
                         res = ResellerProfile(
                             reseller_id=str(row.get("Reseller ID", "RSL-999")),
                             reseller_code=str(row.get("Reseller Code", "RES-NEW")),
-                            name=str(row.get("Reseller Name") or row.get("Business Name", "Partner")),
+                            name=str(row.get("Business or Full Name") or row.get("Primary Contact") or row.get("Reseller Name") or row.get("Business Name", "Partner")),
                             phone=res_phone,
                             email=str(row.get("Business Email", "")),
                             status=str(row.get("Status", "Active")),
-                            operating_model=str(row.get("Operating Model", "Hybrid")),
+                            operating_model=str(row.get("Operating Model", "DIRECT_TO_NEXGLOTV")),
                         )
                         self.register_reseller(res)
                         return res
@@ -246,15 +246,15 @@ class ResellerBotManager:
             try:
                 row = self.crm_provider._get_by_key("09_Resellers", clean_code)
                 if row:
-                    res_phone = normalize_phone_sl(str(row.get("Phone Number") or row.get("Phone", "")))
+                    res_phone = normalize_phone_sl(str(row.get("WhatsApp Number") or row.get("Phone Number") or row.get("Phone", "")))
                     res = ResellerProfile(
                         reseller_id=str(row.get("Reseller ID", clean_code)),
                         reseller_code=str(row.get("Reseller Code", clean_code)),
-                        name=str(row.get("Reseller Name") or row.get("Business Name", "Partner")),
+                        name=str(row.get("Business or Full Name") or row.get("Primary Contact") or row.get("Reseller Name") or row.get("Business Name", "Partner")),
                         phone=res_phone,
                         email=str(row.get("Business Email", "")),
                         status=str(row.get("Status", "Active")),
-                        operating_model=str(row.get("Operating Model", "Hybrid")),
+                        operating_model=str(row.get("Operating Model", "DIRECT_TO_NEXGLOTV")),
                     )
                     self.register_reseller(res)
                     return res
@@ -414,6 +414,49 @@ class ResellerBotManager:
                         ),
                     )
                     self.crm_provider.upsert_payment(payment)
+
+                # Record in 10_Reseller_Sales
+                if hasattr(self.crm_provider, "_upsert_by_key"):
+                    sale_fields = {
+                        "Reseller Sale ID": sale_ref,
+                        "Reseller ID": reseller.reseller_id,
+                        "Reseller Code Snapshot": reseller.reseller_code,
+                        "Customer ID": customer_id,
+                        "Payment ID": payment_id,
+                        "Lead ID": lead_id,
+                        "Sale Date": now_iso,
+                        "Sale Type": "Renewal" if is_resub else "New",
+                        "Sale Status": "Payment Pending",
+                        "Payment Path": "DIRECT_TO_NEXGLOTV",
+                        "Device Count": str(devices),
+                        "Gross Subscription SLE": quote.original_price or sale_amount,
+                        "Discount SLE": (quote.original_price - quote.final_price) if quote.original_price > quote.final_price else 0,
+                        "Net Subscription SLE": sale_amount,
+                        "Collected By": "NexgloTV",
+                        "Commission Eligible": True,
+                        "Commission Rate Snapshot %": str(reseller.commission_rate),
+                        "Standard Commission 20% SLE": expected_commission,
+                    }
+                    self.crm_provider._upsert_by_key("10_Reseller_Sales", sale_fields)
+
+                    # Record in 11_Commissions
+                    comm_id = f"COMM-{sale_ref}"
+                    comm_fields = {
+                        "Commission ID": comm_id,
+                        "Reseller ID": reseller.reseller_id,
+                        "Reseller Sale ID": sale_ref,
+                        "Customer ID": customer_id,
+                        "Payment ID": payment_id,
+                        "Earned On": now_iso,
+                        "Eligible Revenue SLE": sale_amount,
+                        "Rate % Snapshot": str(reseller.commission_rate),
+                        "Commission Earned SLE": expected_commission,
+                        "Payable SLE": 0,
+                        "Commission Status": "Pending",
+                        "Commission Event Type": "RENEWAL" if is_resub else "NEW_SALE",
+                        "Commission Method Snapshot": "Percentage",
+                    }
+                    self.crm_provider._upsert_by_key("11_Commissions", comm_fields)
             except Exception as exc:
                 log.warning("Failed to sync direct sale/customer to Lark: %s", exc)
 
@@ -615,6 +658,57 @@ class ResellerBotManager:
                         ),
                     )
                     self.crm_provider.upsert_payment(payment)
+
+                if hasattr(self.crm_provider, "_upsert_by_key"):
+                    sale_fields = {
+                        "Reseller Sale ID": f"RSALE-WLT-{event_ts}",
+                        "Reseller ID": reseller.reseller_id,
+                        "Reseller Code Snapshot": reseller.reseller_code,
+                        "Customer ID": customer_id,
+                        "Payment ID": f"PAY-WLT-{event_ts}",
+                        "Subscription ID": sub_id,
+                        "Sale Date": now_iso,
+                        "Sale Type": "Renewal" if is_resub else "New",
+                        "Sale Status": "Confirmed",
+                        "Payment Path": "PREPAID_WALLET",
+                        "Device Count": str(devices),
+                        "Net Subscription SLE": net_subscription_price,
+                        "Collected By": "Reseller",
+                        "Commission Eligible": True,
+                        "Commission Rate Snapshot %": str(reseller.commission_rate),
+                        "Standard Commission 20% SLE": commission_earned,
+                        "Wallet Debit Entry ID": wallet_entry_id,
+                    }
+                    self.crm_provider._upsert_by_key("10_Reseller_Sales", sale_fields)
+
+                    comm_id = f"COMM-WLT-{event_ts}"
+                    comm_fields = {
+                        "Commission ID": comm_id,
+                        "Reseller ID": reseller.reseller_id,
+                        "Customer ID": customer_id,
+                        "Payment ID": f"PAY-WLT-{event_ts}",
+                        "Earned On": now_iso,
+                        "Eligible Revenue SLE": net_subscription_price,
+                        "Rate % Snapshot": str(reseller.commission_rate),
+                        "Commission Earned SLE": commission_earned,
+                        "Payable SLE": commission_earned,
+                        "Commission Status": "Approved",
+                        "Commission Event Type": "RENEWAL" if is_resub else "NEW_SALE",
+                        "Commission Method Snapshot": "Percentage",
+                    }
+                    self.crm_provider._upsert_by_key("11_Commissions", comm_fields)
+
+                    wallet_fields = {
+                        "Wallet Entry ID": wallet_entry_id,
+                        "Reseller ID": reseller.reseller_id,
+                        "Transaction Type": "DEBIT",
+                        "Debit Amount SLE": net_subscription_price,
+                        "Credit Amount SLE": 0,
+                        "Running Balance SLE": reseller.wallet_balance,
+                        "Transaction At": now_iso,
+                        "Notes": f"Wallet activation for {norm_phone} ({months}m)",
+                    }
+                    self.crm_provider._upsert_by_key("13_Reseller_Wallet", wallet_fields)
             except Exception as exc:
                 log.warning("Failed to sync wallet activation to Lark: %s", exc)
 

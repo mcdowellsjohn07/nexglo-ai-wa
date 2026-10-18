@@ -284,6 +284,98 @@ def reseller_sync_portal(
     )
 
 
+class ResellerIn(BaseModel):
+    phone: str = Field(min_length=8)
+    reseller_code: str = Field(min_length=2)
+    name: str = Field(default="")
+    operating_model: str = Field(default="DIRECT_TO_NEXGLOTV")
+    commission_rate: int = Field(default=20)
+
+
+@router.get("/resellers")
+def list_resellers(desk: StaffDesk = Depends(staff_desk)) -> dict:
+    """List registered resellers from memory and Lark Base 09_Resellers."""
+    services = desk.services
+    reseller_mgr = getattr(services, "reseller_mgr", None)
+    resellers = []
+    if reseller_mgr:
+        for r in getattr(reseller_mgr, "_resellers_by_code", {}).values():
+            resellers.append({
+                "reseller_id": r.reseller_id,
+                "reseller_code": r.reseller_code,
+                "name": r.name,
+                "phone": r.phone,
+                "status": r.status,
+                "operating_model": r.operating_model,
+                "commission_rate": r.commission_rate,
+                "wallet_balance": r.wallet_balance,
+                "approved_commissions": r.approved_commissions,
+            })
+    return {"resellers": resellers, "count": len(resellers)}
+
+
+@router.post("/resellers")
+def add_reseller(body: ResellerIn, desk: StaffDesk = Depends(staff_desk)) -> dict:
+    """Register a new reseller in bot memory and Lark Base 09_Resellers."""
+    import time
+    from datetime import datetime, timezone
+    from .reseller_bot import ResellerProfile, normalize_phone_sl
+
+    services = desk.services
+    reseller_mgr = getattr(services, "reseller_mgr", None)
+    if not reseller_mgr:
+        raise HTTPException(status_code=500, detail="Reseller manager not available")
+
+    norm_phone = normalize_phone_sl(body.phone)
+    code = body.reseller_code.strip().upper()
+    name = body.name.strip() or f"Partner {code}"
+    res_id = f"RES-{int(time.time())}"
+
+    profile = ResellerProfile(
+        reseller_id=res_id,
+        reseller_code=code,
+        name=name,
+        phone=norm_phone,
+        status="Active",
+        operating_model=body.operating_model,
+        commission_rate=body.commission_rate,
+        wallet_balance=1000,
+    )
+    reseller_mgr.register_reseller(profile)
+
+    crm = getattr(services, "crm", None)
+    synced_to_lark = False
+    if crm and hasattr(crm, "provider") and hasattr(crm.provider, "_upsert_by_key"):
+        try:
+            crm.provider._upsert_by_key("09_Resellers", {
+                "Reseller ID": res_id,
+                "Reseller Code": code,
+                "Business or Full Name": name,
+                "Primary Contact": name,
+                "WhatsApp Number": norm_phone,
+                "Status": "Active",
+                "Operating Model": body.operating_model,
+                "Default Commission Rate %": body.commission_rate,
+                "Default Commission Method": "Percentage",
+                "Joined At": datetime.now(timezone.utc).isoformat(),
+                "Onboarding Verified": True,
+            })
+            synced_to_lark = True
+        except Exception:
+            pass
+
+    return {
+        "status": "success",
+        "reseller": {
+            "reseller_id": res_id,
+            "reseller_code": code,
+            "name": name,
+            "phone": norm_phone,
+            "synced_to_lark": synced_to_lark,
+        }
+    }
+
+
 class SelectModelIn(BaseModel):
     model: str = Field(min_length=1)
 

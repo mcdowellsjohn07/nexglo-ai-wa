@@ -174,13 +174,19 @@ class LarkRestClient:
                 return self._token
             import httpx
             url = "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal"
-            try:
-                resp = httpx.post(url, json={"app_id": self.app_id, "app_secret": self.app_secret}, timeout=30.0)
-                data = resp.json()
-            except Exception as exc:
-                raise LarkCLIError(f"Lark auth request failed: {exc}") from exc
+            data: dict = {}
+            for attempt in range(3):
+                try:
+                    resp = httpx.post(url, json={"app_id": self.app_id, "app_secret": self.app_secret}, timeout=30.0)
+                    data = resp.json()
+                    break
+                except Exception as exc:
+                    if attempt < 2:
+                        time.sleep(0.5 * (attempt + 1))
+                        continue
+                    raise LarkCLIError(f"Lark auth request failed: {exc}") from exc
 
-            if resp.status_code != 200 or data.get("code") != 0:
+            if not data or data.get("code") != 0:
                 raise LarkCLIError(f"Lark auth failed ({data.get('code')}): {data.get('msg')}")
             self._token = data["tenant_access_token"]
             self._token_expires_at = now + int(data.get("expire", 7200)) - 120
@@ -188,17 +194,24 @@ class LarkRestClient:
 
     def request(self, method: str, path: str, *, json_body: Optional[dict] = None, params: Optional[dict] = None, timeout: int = 60) -> dict:
         import httpx
-        token = self.get_token()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json; charset=utf-8",
-        }
+        import time
         url = f"https://open.larksuite.com/open-apis{path}"
-        try:
-            resp = httpx.request(method, url, headers=headers, json=json_body, params=params, timeout=timeout)
-            data = resp.json()
-        except Exception as exc:
-            raise LarkCLIError(f"Lark API request {method} {path} failed: {exc}") from exc
+        data: dict = {}
+        for attempt in range(3):
+            token = self.get_token()
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            }
+            try:
+                resp = httpx.request(method, url, headers=headers, json=json_body, params=params, timeout=timeout)
+                data = resp.json()
+                break
+            except Exception as exc:
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise LarkCLIError(f"Lark API request {method} {path} failed: {exc}") from exc
 
         code = data.get("code", 0)
         if code != 0:
@@ -898,7 +911,11 @@ class LarkBaseCRMProvider(CRMProvider):
         digits = _digits(wa_id)
         if self.rest_client:
             try:
-                items = self.rest_client.search_records(tid, wa_field, digits)
+                # Try 8-digit mobile line first (matches international and local)
+                search_query = digits[-8:] if len(digits) >= 8 else digits
+                items = self.rest_client.search_records(tid, wa_field, search_query)
+                if not items and search_query != digits:
+                    items = self.rest_client.search_records(tid, wa_field, digits)
                 if items:
                     return {k: self._unwrap(v) for k, v in items[0].get("fields", {}).items()}
             except Exception as exc:
