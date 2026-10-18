@@ -105,6 +105,8 @@ class Settings:
     google_sheet_id: str = ""
     google_service_account_json: str = ""
     lark_base_token: str = ""
+    lark_app_id: str = ""
+    lark_app_secret: str = ""
 
     # --- Media ---
     price_card_media_url: str = ""
@@ -177,6 +179,8 @@ class Settings:
             google_sheet_id=get("GOOGLE_SHEET_ID"),
             google_service_account_json=get("GOOGLE_SERVICE_ACCOUNT_JSON"),
             lark_base_token=get("LARK_BASE_TOKEN"),
+            lark_app_id=get("LARK_APP_ID"),
+            lark_app_secret=get("LARK_APP_SECRET"),
             price_card_media_url=get("PRICE_CARD_MEDIA_URL"),
             price_card_media_id=get("PRICE_CARD_MEDIA_ID"),
             discount_percent=int(get("DISCOUNT_PERCENT", "20")),

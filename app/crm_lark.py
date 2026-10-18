@@ -83,6 +83,143 @@ class LarkCLIError(RuntimeError):
     pass
 
 
+class LarkScopeError(LarkCLIError):
+    def __init__(self, message: str, required_scopes: Optional[list[str]] = None, help_url: str = ""):
+        super().__init__(message)
+        self.required_scopes = required_scopes or []
+        self.help_url = help_url
+
+
+KNOWN_TABLE_IDS: dict[str, str] = {
+    "01_Leads": "tblYgrdr4wB2NBGw",
+    "02_Free_Trials": "tbl4kPNhImMDIj7n",
+    "03_Customers": "tblA2Ah3MinIz2W8",
+    "04_Packages": "tblZj4WjOjYei4Cb",
+    "05_Subscriptions": "tblNtdaKKOKHtJb0",
+    "06_Payments": "tblDess1wSufYjMg",
+    "07_Installations": "tblIY5fyZ9IK3YA9",
+    "08_Devices": "tbl7GfQEGKdpfV9X",
+    "09_Resellers": "tblwp7BmY9yd4x3O",
+    "10_Reseller_Sales": "tblN4JhK2in01Q1s",
+    "11_Commissions": "tbldUVwab4hK3Iet",
+    "12_Reseller_Payouts": "tblCUEuV6KdcKW4Q",
+    "13_Reseller_Wallet": "tblYcDq9LCXFG6nZ",
+    "14_Referrals": "tblQo74armGm2rl2",
+    "15_Staff": "tblNnAhuAqN3SVKx",
+    "16_Support_Tickets": "tblik930RNoW8Bwy",
+    "17_Activities": "tblu6xL2ZAgl0HoO",
+    "18_Service_Zones": "tblpi7QuqgkAULz7",
+    "19_Receipts": "tblq7wl8qDj1bxxr",
+}
+
+
+class LarkRestClient:
+    """Direct HTTPS REST client for Lark Open Platform APIs using app credentials."""
+
+    def __init__(self, app_id: str, app_secret: str, base_token: str):
+        import threading
+        self.app_id = app_id
+        self.app_secret = app_secret
+        self.base_token = base_token
+        self._token: str = ""
+        self._token_expires_at: float = 0.0
+        self._lock = threading.Lock()
+
+    def get_token(self) -> str:
+        import time
+        with self._lock:
+            now = time.time()
+            if self._token and now < self._token_expires_at:
+                return self._token
+            import httpx
+            url = "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal"
+            try:
+                resp = httpx.post(url, json={"app_id": self.app_id, "app_secret": self.app_secret}, timeout=30.0)
+                data = resp.json()
+            except Exception as exc:
+                raise LarkCLIError(f"Lark auth request failed: {exc}") from exc
+
+            if resp.status_code != 200 or data.get("code") != 0:
+                raise LarkCLIError(f"Lark auth failed ({data.get('code')}): {data.get('msg')}")
+            self._token = data["tenant_access_token"]
+            self._token_expires_at = now + int(data.get("expire", 7200)) - 120
+            return self._token
+
+    def request(self, method: str, path: str, *, json_body: Optional[dict] = None, params: Optional[dict] = None, timeout: int = 60) -> dict:
+        import httpx
+        token = self.get_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        url = f"https://open.larksuite.com/open-apis{path}"
+        try:
+            resp = httpx.request(method, url, headers=headers, json=json_body, params=params, timeout=timeout)
+            data = resp.json()
+        except Exception as exc:
+            raise LarkCLIError(f"Lark API request {method} {path} failed: {exc}") from exc
+
+        code = data.get("code", 0)
+        if code != 0:
+            msg = data.get("msg", "Unknown error")
+            err_data = data.get("error", {})
+            violations = [v.get("subject") for v in err_data.get("permission_violations", []) if isinstance(v, dict)]
+            helps = [h.get("url") for h in err_data.get("helps", []) if isinstance(h, dict)]
+            help_url = helps[0] if helps else f"https://open.larksuite.com/app/{self.app_id}/auth"
+            if code == 99991672:
+                scopes_str = ", ".join(violations or ["bitable:app"])
+                raise LarkScopeError(
+                    f"Lark Base API Access Denied (Code 99991672): Scope [{scopes_str}] required. "
+                    f"Please open Developer Console at {help_url} to add permissions, publish a version, and add bot to Base.",
+                    required_scopes=violations,
+                    help_url=help_url,
+                )
+            raise LarkCLIError(f"Lark API error ({code}): {msg}")
+        return data
+
+    def list_tables(self) -> list[dict]:
+        res = self.request("GET", f"/bitable/v1/apps/{self.base_token}/tables")
+        data = res.get("data") or {}
+        return data.get("items") or data.get("tables") or []
+
+    def list_records(self, table_id: str, limit: int = 200, page_token: str = "") -> dict:
+        params = {"page_size": min(limit, 500)}
+        if page_token:
+            params["page_token"] = page_token
+        res = self.request("GET", f"/bitable/v1/apps/{self.base_token}/tables/{table_id}/records", params=params)
+        return res.get("data") or {}
+
+    def batch_create_records(self, table_id: str, records: list[dict]) -> list[dict]:
+        body = {"records": [{"fields": r} for r in records]}
+        res = self.request("POST", f"/bitable/v1/apps/{self.base_token}/tables/{table_id}/records/batch_create", json_body=body)
+        data = res.get("data") or {}
+        return data.get("records") or []
+
+    def batch_update_records(self, table_id: str, update_dict: dict[str, dict]) -> list[dict]:
+        body = {"records": [{"record_id": rid, "fields": f} for rid, f in update_dict.items()]}
+        res = self.request("POST", f"/bitable/v1/apps/{self.base_token}/tables/{table_id}/records/batch_update", json_body=body)
+        data = res.get("data") or {}
+        return data.get("records") or []
+
+    def search_records(self, table_id: str, field_name: str, keyword: str) -> list[dict]:
+        body = {
+            "filter": {
+                "conjunction": "and",
+                "conditions": [
+                    {
+                        "field_name": field_name,
+                        "operator": "contains",
+                        "value": [keyword],
+                    }
+                ],
+            },
+            "page_size": 10,
+        }
+        res = self.request("POST", f"/bitable/v1/apps/{self.base_token}/tables/{table_id}/records/search", json_body=body)
+        data = res.get("data") or {}
+        return data.get("items") or data.get("records") or []
+
+
 def _digits(phone: str) -> str:
     return re.sub(r"[^\d]", "", str(phone or ""))[-9:]  # last 9 digits
 
@@ -118,8 +255,6 @@ def _run_cli(args: list[str], timeout: int = 90, confirm: bool = False) -> dict:
     if confirm:
         final_args.append("--yes")
     cmd = [exe, *final_args]
-    # Windows .cmd shims re-quote argv and mangle JSON payloads; bypass the shim
-    # by invoking the native binary or node against run.js directly.
     if exe.lower().endswith(".cmd"):
         exe_dir = Path(exe).parent
         native_bin = exe_dir / "node_modules" / "@larksuite" / "cli" / "bin" / "lark-cli.exe"
@@ -163,19 +298,33 @@ def _run_cli(args: list[str], timeout: int = 90, confirm: bool = False) -> dict:
 class LarkBaseCRMProvider(CRMProvider):
     """Lark Base CRM with the owner's 18-table schema."""
 
-    def __init__(self, base_token: str = "", auto_create: bool = True):
+    def __init__(
+        self,
+        base_token: Optional[str] = None,
+        app_id: Optional[str] = None,
+        app_secret: Optional[str] = None,
+        auto_create: bool = True,
+    ):
         import os
         import threading
 
-        self.base_token = base_token or os.environ.get("LARK_BASE_TOKEN", "")
+        self.base_token = base_token if base_token is not None else (os.environ.get("LARK_BASE_TOKEN", "") or "E8jObNOAeaZqUHsyxRHjR9VcpBg")
+        self.app_id = app_id if app_id is not None else os.environ.get("LARK_APP_ID", "")
+        self.app_secret = app_secret if app_secret is not None else os.environ.get("LARK_APP_SECRET", "")
         self._lock = threading.RLock()
-        self._table_ids: dict[str, str] = {}
+        self._table_ids: dict[str, str] = dict(KNOWN_TABLE_IDS) if self.base_token else {}
         self._id_cache: dict[str, dict[str, str]] = {}   # table -> {key_value: record_id}
         self._wa_cache: dict[str, dict[str, str]] = {}   # table -> {wa_digits: key_value}
         self._lead_records: dict[str, LeadRecord] = {}   # wa_digits -> LeadRecord
         self._customer_records: dict[str, CustomerRecord] = {}  # wa_digits -> CustomerRecord
         self._cache_loaded: set[str] = set()
         self._seq: int = 0
+        self._init_error: Optional[str] = None
+
+        self.rest_client: Optional[LarkRestClient] = None
+        if self.app_id and self.app_secret:
+            self.rest_client = LarkRestClient(self.app_id, self.app_secret, self.base_token)
+
         if auto_create:
             self._ensure_base()
 
@@ -199,13 +348,15 @@ class LarkBaseCRMProvider(CRMProvider):
                             break
                     if not self.base_token and candidates:
                         self.base_token = candidates[0].get("base_token", "")
-                if self.base_token:
-                    log.info("Found existing Lark Base %r (%s)", BASE_NAME, self.base_token)
             except LarkCLIError:
                 self.base_token = ""
-        if not self.base_token:
-            self._create_base()
-        self._load_tables()
+            if not self.base_token:
+                self.base_token = "E8jObNOAeaZqUHsyxRHjR9VcpBg"
+        try:
+            self._load_tables()
+        except Exception as exc:
+            log.warning("Table loading deferred: %s", exc)
+            self._init_error = str(exc)
 
     def _create_base(self) -> None:
         first = "01_Leads"
@@ -308,20 +459,38 @@ class LarkBaseCRMProvider(CRMProvider):
             return False
 
     def _load_tables(self) -> None:
-        res = _run_cli(["+table-list", "--base-token", self.base_token], timeout=60)
-        data = res.get("data") or res
-        items = data.get("tables") or data.get("items") or []
-        for item in items:
-            name, tid = item.get("name", ""), item.get("table_id") or item.get("id", "")
-            if name in FIELD_SCHEMAS:
-                self._table_ids[name] = tid
-        created_any = False
-        for name, schema in FIELD_SCHEMAS.items():
-            if name not in self._table_ids:
-                self._create_table(name, schema)
-                created_any = True
-        if created_any:
-            self._create_link_fields()
+        if self.rest_client:
+            try:
+                items = self.rest_client.list_tables()
+                if items:
+                    for item in items:
+                        name, tid = item.get("name", ""), item.get("table_id") or item.get("id", "")
+                        if name in FIELD_SCHEMAS:
+                            self._table_ids[name] = tid
+                    return
+            except LarkScopeError:
+                pass
+            except Exception as exc:
+                log.warning("REST load_tables error: %s", exc)
+
+        try:
+            res = _run_cli(["+table-list", "--base-token", self.base_token], timeout=60)
+            data = res.get("data") or res
+            items = data.get("tables") or data.get("items") or []
+            for item in items:
+                name, tid = item.get("name", ""), item.get("table_id") or item.get("id", "")
+                if name in FIELD_SCHEMAS:
+                    self._table_ids[name] = tid
+            created_any = False
+            for name, schema in FIELD_SCHEMAS.items():
+                if name not in self._table_ids:
+                    self._create_table(name, schema)
+                    created_any = True
+            if created_any:
+                self._create_link_fields()
+        except LarkCLIError:
+            if not self._table_ids:
+                self._table_ids = dict(KNOWN_TABLE_IDS)
 
     def _table_id(self, name: str) -> str:
         tid = self._table_ids.get(name)
@@ -375,6 +544,30 @@ class LarkBaseCRMProvider(CRMProvider):
         wa_field = TABLE_WA_FIELD.get(table, "")
         id_cache: dict[str, str] = {}
         wa_cache: dict[str, str] = {}
+
+        if self.rest_client:
+            page_token = ""
+            while True:
+                data = self.rest_client.list_records(tid, limit=200, page_token=page_token)
+                items = data.get("items") or data.get("records") or []
+                for item in items:
+                    rid = item.get("record_id", "")
+                    f = item.get("fields", {})
+                    kv = self._unwrap(f.get(key_field))
+                    if rid and kv:
+                        id_cache[str(kv)] = rid
+                    if wa_field:
+                        wa = _digits(self._unwrap(f.get(wa_field)))
+                        if wa and kv:
+                            wa_cache[wa] = str(kv)
+                if not data.get("has_more") or not data.get("page_token"):
+                    break
+                page_token = data.get("page_token")
+            self._id_cache[table] = id_cache
+            self._wa_cache[table] = wa_cache
+            self._cache_loaded.add(table)
+            return
+
         offset = 0
         while True:
             req = [
@@ -525,6 +718,27 @@ class LarkBaseCRMProvider(CRMProvider):
                     key_value = existing_key
                     fields[key] = existing_key
 
+        if self.rest_client:
+            try:
+                if rid:
+                    self.rest_client.batch_update_records(tid, {rid: fields})
+                    if wa_field and fields.get(wa_field):
+                        self._wa_cache.setdefault(table, {})[_digits(str(fields[wa_field]))] = key_value
+                    self._id_cache.setdefault(table, {})[key_value] = rid
+                    return True, key_value
+                created = self.rest_client.batch_create_records(tid, [fields])
+                if created and isinstance(created, list):
+                    first = created[0]
+                    new_rid = first.get("record_id", "") if isinstance(first, dict) else str(first)
+                    if new_rid:
+                        self._id_cache.setdefault(table, {})[key_value] = new_rid
+                        if wa_field and fields.get(wa_field):
+                            self._wa_cache.setdefault(table, {})[_digits(str(fields[wa_field]))] = key_value
+                return True, key_value
+            except LarkCLIError as exc:
+                log.error("Lark REST upsert failed (%s key=%s): %s", table, key_value, exc)
+                raise
+
         try:
             if rid:
                 upd = json.dumps({"update_records": {rid: fields}}, ensure_ascii=False, default=str)
@@ -560,6 +774,18 @@ class LarkBaseCRMProvider(CRMProvider):
         key_value = str(fields.get(key, ""))
         fields = self._resolve_links(table, fields)
         fields = {k: v for k, v in fields.items() if v is not None}
+        if self.rest_client:
+            try:
+                created = self.rest_client.batch_create_records(tid, [fields])
+                if created and isinstance(created, list):
+                    first = created[0]
+                    new_rid = first.get("record_id", "") if isinstance(first, dict) else str(first)
+                    if new_rid and key_value:
+                        self._id_cache.setdefault(table, {})[key_value] = new_rid
+                return True
+            except LarkCLIError as exc:
+                log.error("Lark REST append failed (%s): %s", table, exc)
+                raise
         try:
             res = _run_cli(["+record-batch-create", "--base-token", self.base_token,
                             "--table-id", tid,
@@ -582,6 +808,14 @@ class LarkBaseCRMProvider(CRMProvider):
             return None
         tid = self._table_id(table)
         key = TABLE_KEY_FIELD[table]
+        if self.rest_client:
+            try:
+                items = self.rest_client.search_records(tid, key, str(key_value))
+                if items:
+                    return {k: self._unwrap(v) for k, v in items[0].get("fields", {}).items()}
+            except Exception as exc:
+                log.debug("REST get_by_key error (%s): %s", key_value, exc)
+            return None
         res = _run_cli(["+record-search", "--base-token", self.base_token,
                         "--table-id", tid, "--keyword", str(key_value),
                         "--search-field", key, "--limit", "1"], timeout=60)
@@ -594,8 +828,17 @@ class LarkBaseCRMProvider(CRMProvider):
         if not wa_field:
             return None
         tid = self._table_id(table)
+        digits = _digits(wa_id)
+        if self.rest_client:
+            try:
+                items = self.rest_client.search_records(tid, wa_field, digits)
+                if items:
+                    return {k: self._unwrap(v) for k, v in items[0].get("fields", {}).items()}
+            except Exception as exc:
+                log.debug("REST get_by_wa error (%s): %s", wa_id, exc)
+            return None
         res = _run_cli(["+record-search", "--base-token", self.base_token,
-                        "--table-id", tid, "--keyword", _digits(wa_id),
+                        "--table-id", tid, "--keyword", digits,
                         "--search-field", wa_field, "--limit", "1"], timeout=60)
         return self._parse_search(res)
 
@@ -1483,10 +1726,20 @@ def _hours_between(start: str, end: str) -> int:
         return 0
 
 
-def create_lark_provider(base_token: str = "", auto_create: bool = True,
-                         seed_packages: bool = True) -> LarkBaseCRMProvider:
+def create_lark_provider(
+    base_token: str = "",
+    app_id: str = "",
+    app_secret: str = "",
+    auto_create: bool = False,
+    seed_packages: bool = False,
+) -> LarkBaseCRMProvider:
     """Factory. Raises LarkCLIError if lark-cli isn't configured/authorized."""
-    provider = LarkBaseCRMProvider(base_token=base_token, auto_create=auto_create)
+    provider = LarkBaseCRMProvider(
+        base_token=base_token,
+        app_id=app_id,
+        app_secret=app_secret,
+        auto_create=auto_create,
+    )
     if seed_packages:
         try:
             provider.seed_packages()

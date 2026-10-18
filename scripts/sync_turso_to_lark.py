@@ -136,6 +136,7 @@ def sync_all():
             lead_stage=stage,
             first_contact_at=str(created_at),
             last_message_at=str(last_contact),
+            created_at=str(created_at),
             months=int(draft.get("months") or 0),
             device_count=int(draft.get("devices") or draft.get("device_count") or 0),
             subscription_quote_le=int(draft.get("quote") or draft.get("subscription_quote_le") or 0),

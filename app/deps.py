@@ -83,12 +83,22 @@ def build_services(
             from .crm_lark import create_lark_provider
             crm_provider = create_lark_provider(
                 base_token=getattr(settings, "lark_base_token", ""),
-                auto_create=True,
+                app_id=getattr(settings, "lark_app_id", ""),
+                app_secret=getattr(settings, "lark_app_secret", ""),
+                auto_create=False,
             )
-            log.info("CRM provider: Lark Base (%s)", getattr(crm_provider, "base_token", "?"))
+            has_rest = bool(getattr(crm_provider, "rest_client", None))
+            log.info("CRM provider: Lark Base (token=%s, REST=%s)", getattr(crm_provider, "base_token", "?"), has_rest)
         except Exception as exc:
-            log.warning("Lark Base CRM unavailable (%s); falling back to mock", exc)
-            crm_provider = None
+            log.warning("Lark Base CRM setup error (%s)", exc)
+            from .crm_lark import LarkBaseCRMProvider
+            crm_provider = LarkBaseCRMProvider(
+                base_token=getattr(settings, "lark_base_token", ""),
+                app_id=getattr(settings, "lark_app_id", ""),
+                app_secret=getattr(settings, "lark_app_secret", ""),
+                auto_create=False,
+            )
+            crm_provider._init_error = str(exc)
     if crm_provider is None:
         crm_provider = create_crm_provider(
             provider=crm_provider_name,
@@ -96,6 +106,7 @@ def build_services(
             service_account_json=getattr(settings, "google_service_account_json", ""),
         )
     crm = CRMService(crm_provider)
+
 
     # Media service
     media = MediaService(

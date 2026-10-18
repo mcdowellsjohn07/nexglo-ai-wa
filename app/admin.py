@@ -359,6 +359,7 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
 
     synced = 0
     errors = 0
+    last_err = ""
     state_map = {
         "idle": "NEW_LEAD", "faq_only": "CONTACTED", "prices_sent": "PRICES_SENT",
         "package_selected": "PACKAGE_SELECTED", "payment_readiness": "PAYMENT_READINESS",
@@ -416,8 +417,15 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
                 synced += 1
                 if lead.lead_id and lead.lead_id != r.get("lead_id"):
                     desk.store.set_lead_id(wa_id, lead.lead_id)
-        except Exception:
+        except Exception as exc:
             errors += 1
+            last_err = str(exc)
+
+    if synced == 0 and errors > 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Lark CRM sync failed for all {errors} records: {last_err}",
+        )
 
     return {
         "status": "success",
@@ -425,5 +433,6 @@ def sync_crm_leads(desk: StaffDesk = Depends(staff_desk)) -> dict:
         "synced_leads": synced,
         "errors": errors,
     }
+
 
 

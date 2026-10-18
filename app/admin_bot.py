@@ -625,6 +625,7 @@ class AdminBotManager:
 
             from app.crm_sheets import LeadRecord
             synced = 0
+            last_err = ""
             for r in rows:
                 wa = str(r.get("wa_id") or "").strip()
                 if not wa:
@@ -638,12 +639,20 @@ class AdminBotManager:
                     lead_stage="ACTIVE_CHAT",
                     last_message_at=str(r.get("last_user_at") or r.get("updated_at") or ""),
                 )
-                if provider.upsert_lead(lead):
-                    synced += 1
+                try:
+                    if provider.upsert_lead(lead):
+                        synced += 1
+                except Exception as e:
+                    last_err = str(e)
 
-            return f"✅ *Lark CRM Sync Complete!*\nSynchronized {synced} customer records to Lark Base `01_Leads`."
+            if synced > 0:
+                return f"✅ *Lark CRM Sync Complete!*\nSynchronized {synced} customer records to Lark Base `01_Leads`."
+            elif last_err:
+                return f"❌ *Lark CRM Sync Error:*\n{last_err}"
+            return "ℹ️ No records needed synchronization."
         except Exception as exc:
             return f"❌ CRM Sync failed: {exc}"
+
 
     def _cmd_backup(self) -> str:
         if not self.store or not hasattr(self.store, "export_backup"):
