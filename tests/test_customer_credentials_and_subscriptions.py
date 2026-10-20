@@ -13,6 +13,7 @@ Verifies:
 10. Customer flow: Customer credentials inquiry delivers login details if active
 """
 
+from typing import Any
 import pytest
 from app.config import Settings
 from app.crm_sheets import CustomerRecord
