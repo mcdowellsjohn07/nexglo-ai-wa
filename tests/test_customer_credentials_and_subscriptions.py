@@ -177,19 +177,21 @@ def test_admin_bot_credentials_and_edit_sale():
     assert cust.device_count == 2
 
 
-def test_customer_credentials_inquiry_flow():
+def test_customer_credentials_inquiry_flow(tmp_path):
+    db_file = str(tmp_path / "test_cred_flow.sqlite")
     settings = Settings(
         admin_token="test_admin_token",
+        auto_reply_mode="all",
     )
-    services = build_services(settings)
+    services = build_services(settings, db_path=db_file)
     crm = services.crm.provider
 
     # Seed an active customer with credentials
     c = CustomerRecord(
         customer_id="CUST-CRED-TEST",
         source_lead_id="LEAD-01",
-        wa_id="+23276554433",
-        phone_e164="+23276554433",
+        wa_id="+23276998811",
+        phone_e164="+23276998811",
         name="Aminata Turay",
         subscription_months=1,
         device_count=1,
@@ -203,7 +205,7 @@ def test_customer_credentials_inquiry_flow():
     # Customer sends message asking for credentials
     msg = InboundMessage(
         message_id="msg_cred_01",
-        wa_id="23276554433",
+        wa_id="23276998811",
         type="text",
         profile_name="Aminata Turay",
         text="Can you send my login credentials and password?",
@@ -211,7 +213,7 @@ def test_customer_credentials_inquiry_flow():
     services.agent.handle_message(msg)
 
     # Check conversation messages
-    history = services.store.history("23276554433", limit=5)
+    history = services.store.history("23276998811", limit=5)
     bot_replies = [h["content"] for h in history if h["role"] == "assistant"]
     assert any("aminata_iptv" in r for r in bot_replies)
     assert any("tvpassword123" in r for r in bot_replies)
