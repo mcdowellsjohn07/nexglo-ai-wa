@@ -83,6 +83,23 @@ class ResellerProfile:
     wallet_balance: int = 0
     approved_commissions: int = 0
     unpaid_commissions: int = 0
+    # Unified Partner & Installer Fields
+    partner_role: str = "Reseller Only"  # "Reseller Only" or "Reseller + Installer"
+    installer_approval_status: str = "Not Applied"  # Not Applied, Pending, Approved, Suspended, Revoked
+    installer_approved_by: str = ""
+    installer_approved_at: str = ""
+    installer_availability_status: str = "Available"  # Available, Busy, Unavailable, Suspended
+    installer_coverage_areas: str = ""
+    installer_device_skills: str = ""
+    installer_experience: str = ""
+    installer_availability_times: str = ""
+    transport_arrangement: str = "Own"
+    installation_commission_rate: int = 40
+    monthly_bonus_eligible: bool = True
+    policy_acceptance_at: str = ""
+    onboarding_form_ref: str = ""
+    unpaid_installer_earnings: int = 0
+    paid_installer_earnings: int = 0
 
 
 def validate_sale_inputs(
@@ -285,6 +302,9 @@ class ResellerBotManager:
         payment_reference: str,
         amount_reported: Optional[int] = None,
         is_renewal: bool = False,
+        account_username: str = "",
+        account_password: str = "",
+        server_url: str = "",
     ) -> dict[str, Any]:
         """Process Model 1 direct sale or resubscription: Customer paid NexgloTV directly.
 
@@ -373,6 +393,9 @@ class ResellerBotManager:
                     account_status="active",
                     renewal_count=renewal_count,
                     last_renewed_at=now_iso if is_resub else None,
+                    account_username=account_username or (getattr(existing_customer, "account_username", "") if existing_customer else ""),
+                    account_password=account_password or (getattr(existing_customer, "account_password", "") if existing_customer else ""),
+                    server_url=server_url or (getattr(existing_customer, "server_url", "") if existing_customer else ""),
                 )
                 if hasattr(self.crm_provider, "upsert_customer"):
                     self.crm_provider.upsert_customer(customer)
@@ -511,6 +534,9 @@ class ResellerBotManager:
         months: int,
         devices: int,
         is_renewal: bool = False,
+        account_username: str = "",
+        account_password: str = "",
+        server_url: str = "",
     ) -> dict[str, Any]:
         """Process Model 2 instant activation funded by Reseller Prepaid Wallet.
 
@@ -639,6 +665,9 @@ class ResellerBotManager:
                     account_status="active",
                     renewal_count=renewal_count,
                     last_renewed_at=now_iso if is_resub else None,
+                    account_username=account_username or (getattr(existing_customer, "account_username", "") if existing_customer else ""),
+                    account_password=account_password or (getattr(existing_customer, "account_password", "") if existing_customer else ""),
+                    server_url=server_url or (getattr(existing_customer, "server_url", "") if existing_customer else ""),
                 )
                 if hasattr(self.crm_provider, "upsert_customer"):
                     self.crm_provider.upsert_customer(customer)
@@ -978,7 +1007,7 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
     # 5b. If name not yet found, check explicit label: name: John Kamara, customer: John Kamara
     if not name:
         label_m = re.search(
-            r"(?:name|customer|client|subscriber|cliente|nombre)[:\s]+(.*?)(?=\s*(?:package|pkg|plan|phone|tel|wa|number|method|ref|txn|receipt|code|id)[:\s]|$|,|\n|;)",
+            r"(?:name|customer|client|subscriber|cliente|nombre)[:\s]+(.*?)(?=\s*(?:package|pkg|plan|phone|tel|wa|number|method|ref|txn|receipt|code|id|user|username|pass|password|server|url)[:\s]|$|,|\n|;)",
             clean,
             re.I,
         )
@@ -995,6 +1024,8 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
         # Remove ref if present
         if ref and ref in text_for_name and not ref.startswith(("REF-", "CASH-")):
             text_for_name = text_for_name.replace(ref, " ")
+        # Remove credential patterns
+        text_for_name = re.sub(r"\b(?:user(?:name)?|pass(?:word)?|pwd|server(?:_url)?|url|portal)[:\s]+[^\s,;]+", " ", text_for_name, flags=re.I)
         # Remove package patterns
         text_for_name = re.sub(r"\b\d+\s*(?:months?|meses?|mo|m)\b", " ", text_for_name, flags=re.I)
         text_for_name = re.sub(r"\b\d+\s*(?:years?|yrs?|y|anos?)\b", " ", text_for_name, flags=re.I)
@@ -1005,7 +1036,7 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
         # Remove payment methods
         text_for_name = re.sub(r"\b(?:orange\s*money|orangemoney|orange|om|afri\s*money|afrimoney|africell|afri|am|bank\s*transfer|bank|transfer|cash|efectivo|qmoney|wallet)\b", " ", text_for_name, flags=re.I)
         # Remove command keywords and prepositions
-        text_for_name = re.sub(r"\b(?:direct|sale|sales|record|new|add|renew|resubscribe|renewal|activate|wallet|for|to|via|with|paid|ref|txn|phone|name|package|pkg|method)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b(?:direct|sale|sales|record|new|add|renew|resubscribe|renewal|activate|wallet|for|to|via|with|paid|ref|txn|phone|name|package|pkg|method|user|username|pass|password|server|url)\b", " ", text_for_name, flags=re.I)
 
         stop_words = {
             "direct", "sale", "sales", "record", "new", "add", "renew", "resubscribe",
@@ -1016,6 +1047,7 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
             "plan", "plans", "sub", "subscription", "customer", "client", "renovacion",
             "renovar", "dispositivo", "dispositivos", "pantalla", "pantallas", "orange",
             "orangemoney", "afri", "afrimoney", "africell", "bank", "cash", "qmoney",
+            "username", "pass", "password", "server", "url", "portal", "acc", "account",
         }
 
         candidate_tokens = [t.strip(",.:;#-()\"'") for t in text_for_name.split() if t.strip(",.:;#-()\"'")]
@@ -1032,6 +1064,22 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
     if not name:
         name = "" if is_resub else f"Customer {phone[-6:]}"
 
+    # 6. Extract Credentials if present
+    username = ""
+    u_match = re.search(r"(?:user(?:name)?|acc(?:ount)?|iptv_user)[:\s]+([a-zA-Z0-9_.@\-]+)", clean, re.I)
+    if u_match:
+        username = u_match.group(1).strip()
+
+    password = ""
+    p_match = re.search(r"(?:pass(?:word)?|pwd|iptv_pass)[:\s]+([a-zA-Z0-9_.@\-!#%]+)", clean, re.I)
+    if p_match:
+        password = p_match.group(1).strip()
+
+    server_url = ""
+    s_match = re.search(r"(?:server(?:_url)?|portal|url|host)[:\s]+(https?://[^\s,;]+|[a-zA-Z0-9.\-]+:\d+)", clean, re.I)
+    if s_match:
+        server_url = s_match.group(1).strip()
+
     return {
         "customer_phone": phone,
         "customer_name": name,
@@ -1040,6 +1088,9 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
         "payment_method": method,
         "payment_reference": ref,
         "is_renewal": is_resub,
+        "account_username": username,
+        "account_password": password,
+        "server_url": server_url,
     }
 
 
@@ -1095,12 +1146,14 @@ def parse_wallet_activation_text(text: str, is_renewal: bool = False) -> Optiona
         phone_raw = re.search(r"(?:(?:\+|00)?232[\s\.\-]*)?[0-9]{2}[\s\.\-]*[0-9]{3}[\s\.\-]*[0-9]{3,4}\b|\b\d{8,15}\b", text_for_name)
         if phone_raw:
             text_for_name = text_for_name.replace(phone_raw.group(0), " ")
+        # Remove credential patterns
+        text_for_name = re.sub(r"\b(?:user(?:name)?|pass(?:word)?|pwd|server(?:_url)?|url|portal)[:\s]+[^\s,;]+", " ", text_for_name, flags=re.I)
         text_for_name = re.sub(r"\b\d+\s*(?:months?|meses?|mo|m)\b", " ", text_for_name, flags=re.I)
         text_for_name = re.sub(r"\b\d+\s*(?:years?|yrs?|y|anos?)\b", " ", text_for_name, flags=re.I)
         text_for_name = re.sub(r"\b\d+\s*(?:devices?|dispositivos?|screens?|tvs?|users?|devs?|disp|d)\b", " ", text_for_name, flags=re.I)
         text_for_name = re.sub(r"\b\d+[mdy]\b", " ", text_for_name, flags=re.I)
         text_for_name = re.sub(r"\b(?:annual|yearly|quarterly|half[- ]?year|semi[- ]?annual)\b", " ", text_for_name, flags=re.I)
-        text_for_name = re.sub(r"\b(?:activate|wallet|renew|resubscribe|for|to|phone|name|package|pkg|method)\b", " ", text_for_name, flags=re.I)
+        text_for_name = re.sub(r"\b(?:activate|wallet|renew|resubscribe|for|to|phone|name|package|pkg|method|user|username|pass|password|server|url)\b", " ", text_for_name, flags=re.I)
 
         stop_words = {
             "direct", "sale", "sales", "record", "new", "add", "renew", "resubscribe",
@@ -1110,6 +1163,7 @@ def parse_wallet_activation_text(text: str, is_renewal: bool = False) -> Optiona
             "tv", "tvs", "user", "users", "dev", "devs", "mes", "meses", "ano", "anos",
             "plan", "plans", "sub", "subscription", "customer", "client", "renovacion",
             "renovar", "dispositivo", "dispositivos", "pantalla", "pantallas",
+            "username", "pass", "password", "server", "url", "portal", "acc", "account",
         }
 
         candidate_tokens = [t.strip(",.:;#-()\"'") for t in text_for_name.split() if t.strip(",.:;#-()\"'")]
@@ -1125,10 +1179,29 @@ def parse_wallet_activation_text(text: str, is_renewal: bool = False) -> Optiona
     if not name:
         name = "" if is_resub else f"Customer {phone[-6:]}"
 
+    # 4. Extract Credentials if present
+    username = ""
+    u_match = re.search(r"(?:user(?:name)?|acc(?:ount)?|iptv_user)[:\s]+([a-zA-Z0-9_.@\-]+)", clean, re.I)
+    if u_match:
+        username = u_match.group(1).strip()
+
+    password = ""
+    p_match = re.search(r"(?:pass(?:word)?|pwd|iptv_pass)[:\s]+([a-zA-Z0-9_.@\-!#%]+)", clean, re.I)
+    if p_match:
+        password = p_match.group(1).strip()
+
+    server_url = ""
+    s_match = re.search(r"(?:server(?:_url)?|portal|url|host)[:\s]+(https?://[^\s,;]+|[a-zA-Z0-9.\-]+:\d+)", clean, re.I)
+    if s_match:
+        server_url = s_match.group(1).strip()
+
     return {
         "customer_phone": phone,
         "customer_name": name,
         "months": months,
         "devices": devices,
         "is_renewal": is_resub,
+        "account_username": username,
+        "account_password": password,
+        "server_url": server_url,
     }

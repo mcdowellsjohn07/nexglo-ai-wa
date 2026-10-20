@@ -244,6 +244,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <button onclick="runAutomations()" style="width: 100%; background: #374151;">Trigger Automations Run</button>
       </div>
     </div>
+
+    <!-- Card 4: Reseller & Installer Program Overview -->
+    <div class="card">
+      <h2>Partner & Installer Engine <span class="badge badge-green">Unified Model</span></h2>
+      <div class="stat-row"><span>Subscription Commission:</span> <strong>20% (Verified Sales)</strong></div>
+      <div class="stat-row"><span>Installation Commission:</span> <strong>40% (Min SLE 100 Fee)</strong></div>
+      <div class="stat-row"><span>Company Fee Retained:</span> <strong>60% Before Costs</strong></div>
+      <div class="stat-row"><span>Monthly Bonus Bands:</span> <span class="badge badge-blue">Bronze (50) &bull; Silver (125) &bull; Gold (250) &bull; Diamond (750)</span></div>
+      <div class="stat-row"><span>Ledger Isolation:</span> <span>Wallet &ne; Commissions &ne; Install</span></div>
+      <div class="stat-row"><span>Master Lark Base:</span> <span class="badge badge-blue">E8jObNOA... (21 Tables)</span></div>
+      
+      <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
+        <a href="https://open.larksuite.com" target="_blank" style="text-decoration: none;">
+          <button style="width: 100%; background: #4f46e5; color: #fff; font-weight: 600;">📊 Open Lark Master CRM Base</button>
+        </a>
+      </div>
+    </div>
   </div>
 
   <!-- Live Operations & Conversations Desk -->

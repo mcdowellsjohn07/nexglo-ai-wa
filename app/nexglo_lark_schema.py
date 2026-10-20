@@ -111,6 +111,22 @@ ACTIVITY_OUTCOMES = ["Interested", "No Answer", "Need Follow-up", "Converted",
 INSTALLATION_TYPES = ["Physical Visit", "Remote", "Both"]
 SERVICE_AVAILABLE = ["Yes", "No", "On Request"]
 
+# Reseller + Installer Unified Program Enums
+PARTNER_ROLES = ["Reseller Only", "Reseller + Installer"]
+INSTALLER_APPROVAL_STATUSES = ["Not Applied", "Pending", "Approved", "Suspended", "Revoked"]
+INSTALLER_AVAILABILITY = ["Available", "Busy", "Unavailable", "Suspended"]
+TRANSPORT_ARRANGEMENTS = ["Own", "Public/Hired", "Discuss"]
+INSTALL_MODES = ["Paid Physical", "Free Remote", "Self-Install", "Revisit/Support"]
+INSTALLER_ASSIGNMENT_STATUSES = ["Unassigned", "Offered", "Accepted", "Declined", "Reassigned", "Cancelled"]
+FEE_PAYMENT_STATUSES = ["Unpaid", "Pending Verification", "Verified", "Refunded"]
+INSTALLER_EARNING_TYPES = ["INSTALLATION_BASE", "INSTALLATION_ADJUSTMENT", "MONTHLY_BONUS", "BONUS_ADJUSTMENT"]
+INSTALLER_EARNING_STATUSES = ["Draft", "Hold", "Earned", "Approved", "Partially Paid", "Paid", "Reversed"]
+PERFORMANCE_BANDS = ["None", "Starter", "Bronze", "Silver", "Gold", "Platinum", "Diamond"]
+CLOSURE_STATUSES = ["Open", "Under Review", "Locked", "Paid", "Adjusted"]
+ACTION_QUEUE_ROLES = ["Customer", "Lead", "Installer", "Reseller", "Staff", "Admin"]
+ACTION_DELIVERY_STATES = ["Draft", "Pending Approval", "Queued", "Sent", "Delivered", "Failed", "Cancelled"]
+ACTION_PRIORITIES = ["Low", "Medium", "High", "Urgent"]
+
 # Bot state -> manifest Lead Stage
 STAGE_TO_MANIFEST = {
     "NEW_LEAD": "New", "PRICES_SENT": "Contacted", "FAQ_ONLY": "Contacted",
@@ -189,6 +205,7 @@ FIELD_SCHEMAS: dict[str, list[dict]] = {
         _select("Preferred Setup", ["Self-Setup", "Remote", "Physical"]),
         _text("Primary Device Type"), _text("Referral Code"),
         _checkbox("Renewal Reminder Opt-in"), _text("Support Notes"),
+        _text("Account Username"), _text("Account Password"), _url("Server URL"),
     ],
     "04_Packages": [
         _text("Package ID"), _text("Package Name"), _number("Duration Months"),
@@ -199,7 +216,7 @@ FIELD_SCHEMAS: dict[str, list[dict]] = {
         _date("Valid From"), _text("Package Notes"),
     ],
     "05_Subscriptions": [
-        _text("Subscription ID"), _text("Customer ID"),
+        _text("Subscription ID"), _text("Customer ID"), _phone("Customer WhatsApp Number"),
         _text("Previous Subscription ID"), _text("Origin Trial ID"),
         _text("Package ID"), _number("Device Count"), _number("Duration Months"),
         _datetime("Activation Date"), _datetime("Standard Expiry"),
@@ -238,6 +255,23 @@ FIELD_SCHEMAS: dict[str, list[dict]] = {
         _checkbox("App Installed"), _checkbox("Account Configured"),
         _checkbox("Playback Tested"), _checkbox("Customer Accepted"),
         _number("Transport Cost SLE"), _text("Issue or Visit Notes"),
+        _text("Credited Sales Reseller ID"),
+        _text("Assigned Installer Reseller ID"),
+        _select("Installer Assignment Status", INSTALLER_ASSIGNMENT_STATUSES),
+        _datetime("Assigned At"), _datetime("Accepted At"),
+        _select("Install Mode", INSTALL_MODES),
+        _number("Quoted Fee SLE"), _number("Approved Fee SLE"),
+        _text("Fee Quote Version"), _text("Fee Approved By"),
+        _datetime("Fee Approved At"), _text("Installation Fee Payment ID"),
+        _number("Fee Received Verified SLE"),
+        _select("Fee Payment Status", FEE_PAYMENT_STATUSES),
+        _datetime("Customer Confirmed Working At"),
+        _text("Completion Verified By"), _datetime("Completion Verified At"),
+        _datetime("Qualified At"), _text("Qualified Month YYYY-MM"),
+        _number("Commission Rate Snapshot %"),
+        _text("Installation Earning ID"), _checkbox("Monthly Count Eligible"),
+        _text("Revisit Of ID"), _checkbox("Refund/Dispute Hold"),
+        _text("WhatsApp Conversation Ref"), _text("Last Bot Event ID"),
     ],
     "08_Devices": [
         _text("Device ID"), _text("Customer ID"), _text("Subscription ID"),
@@ -265,6 +299,16 @@ FIELD_SCHEMAS: dict[str, list[dict]] = {
         _select("Preferred Payout Method", PAYOUT_METHODS),
         _text("Payout Account Masked"), _text("Unique Referral Code"),
         _datetime("Last Activity At"), _text("Notes"),
+        _select("Partner Role", PARTNER_ROLES),
+        _select("Installer Approval Status", INSTALLER_APPROVAL_STATUSES),
+        _text("Installer Approved By"), _datetime("Installer Approved At"),
+        _select("Installer Availability Status", INSTALLER_AVAILABILITY),
+        _text("Installer Coverage Areas"), _text("Installer Device Skills"),
+        _text("Installer Experience"), _text("Installer Availability Times"),
+        _select("Transport Arrangement", TRANSPORT_ARRANGEMENTS),
+        _number("Installation Commission Default %"),
+        _checkbox("Monthly Bonus Eligible"),
+        _datetime("Policy Acceptance At"), _text("Onboarding Form Reference"),
     ],
     "10_Reseller_Sales": [
         _text("Reseller Sale ID"), _text("Reseller ID"),
@@ -349,6 +393,48 @@ FIELD_SCHEMAS: dict[str, list[dict]] = {
         _number("Standard Visit Fee SLE"), _number("Transport Fee SLE"),
         _number("Additional Device Fee SLE"), _select("Service Available", SERVICE_AVAILABLE),
         _text("Assigned Technician ID"), _date("Price Effective Date"), _text("Notes"),
+    ],
+    "20_Installer_Earnings": [
+        _text("Earning ID"), _text("Reseller ID"),
+        _select("Type", INSTALLER_EARNING_TYPES),
+        _text("Installation ID"), _text("Performance Month"),
+        _text("Idempotency Key"), _number("Basis Fee SLE"),
+        _number("Rate Snapshot %"), _number("Signed Earning SLE"),
+        _select("Status", INSTALLER_EARNING_STATUSES),
+        _datetime("Qualified At"), _text("Approved By"),
+        _datetime("Approved At"), _text("Linked Payout ID"),
+        _number("Settled SLE"), _number("Outstanding SLE"),
+        _number("Recoverable SLE"), _text("Origin Event ID"),
+        _text("Policy Version"), _text("Correction Reason"),
+    ],
+    "21_Installer_Monthly_Performance": [
+        _text("Performance ID"), _text("Reseller ID"),
+        _text("Performance Month"), _datetime("Period Start"),
+        _datetime("Period End"), _datetime("Installer Role Effective Date"),
+        _text("Qualifying Installation IDs"), _number("Qualifying Count"),
+        _select("Provisional Band", PERFORMANCE_BANDS),
+        _number("Provisional Bonus SLE"),
+        _select("Closed Band", PERFORMANCE_BANDS),
+        _number("Approved Bonus Amount SLE"),
+        _select("Closure Status", CLOSURE_STATUSES),
+        _datetime("Locked At"), _text("Locked By"),
+        _text("Bonus Earning ID"),
+        _select("Payout State", ["Unpaid", "Approved", "Paid", "Adjusted"]),
+        _text("Exception Notes"),
+    ],
+    "22_WhatsApp_Action_Queue": [
+        _text("Action ID"), _text("Event Type"),
+        _text("Related Table"), _text("Related Record ID"),
+        _select("Target Role", ACTION_QUEUE_ROLES),
+        _phone("Target WhatsApp ID"), _text("Approved Template Key"),
+        _text("Payload Reference"), _select("Priority", ACTION_PRIORITIES),
+        _checkbox("Requires Approval"), _text("Approved By"),
+        _datetime("Approved At"), _text("Requested By"),
+        _datetime("Requested At"), _datetime("Queued At"),
+        _number("Attempt Count"), _text("Provider Message ID"),
+        _select("Delivery State", ACTION_DELIVERY_STATES),
+        _text("Last Error"), _datetime("Last Attempt At"),
+        _text("Idempotency Key"),
     ],
 }
 
@@ -449,11 +535,16 @@ TABLE_KEY_FIELD: dict[str, str] = {
     "14_Referrals": "Referral ID", "15_Staff": "Staff ID",
     "16_Support_Tickets": "Ticket ID", "17_Activities": "Activity ID",
     "18_Service_Zones": "Zone ID",
+    "20_Installer_Earnings": "Earning ID",
+    "21_Installer_Monthly_Performance": "Performance ID",
+    "22_WhatsApp_Action_Queue": "Action ID",
 }
 
 TABLE_WA_FIELD: dict[str, str] = {
     "01_Leads": "WhatsApp Number", "02_Free_Trials": "WhatsApp Number",
-    "03_Customers": "WhatsApp Number", "09_Resellers": "WhatsApp Number",
+    "03_Customers": "WhatsApp Number", "05_Subscriptions": "Customer WhatsApp Number",
+    "09_Resellers": "WhatsApp Number",
+    "22_WhatsApp_Action_Queue": "Target WhatsApp ID",
 }
 
 # Bot value -> manifest option label, per table/column. Unmapped columns/values

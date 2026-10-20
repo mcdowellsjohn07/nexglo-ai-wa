@@ -151,6 +151,8 @@ KNOWN_TABLE_IDS: dict[str, str] = {
     "17_Activities": "tblu6xL2ZAgl0HoO",
     "18_Service_Zones": "tblpi7QuqgkAULz7",
     "19_Receipts": "tblq7wl8qDj1bxxr",
+    "20_Installer_Earnings": "tbleg1SpmjYesAG9",
+    "21_Installer_Monthly_Performance": "tblvEwRORY6geaXq",
 }
 
 
@@ -966,6 +968,9 @@ class LarkBaseCRMProvider(CRMProvider):
         "referrer_code": "Referral Code", "reseller_code": "Reseller ID",
         "account_status": "Customer Status", "activation_at": "Date Joined",
         "created_at": "Date Joined",
+        "account_username": "Account Username",
+        "account_password": "Account Password",
+        "server_url": "Server URL",
     }
 
     @staticmethod
@@ -1270,6 +1275,12 @@ class LarkBaseCRMProvider(CRMProvider):
                 extras.append(f"Renewals: {customer.renewal_count}")
             if customer.package_code:
                 extras.append(f"Package {customer.package_code}")
+            if getattr(customer, "account_username", None):
+                extras.append(f"User {customer.account_username}")
+            if getattr(customer, "account_password", None):
+                extras.append(f"Pass {customer.account_password}")
+            if getattr(customer, "server_url", None):
+                extras.append(f"Server {customer.server_url}")
             merged_notes = self._merge_notes(cols.get("Support Notes", ""), extras)
             if merged_notes:
                 cols["Support Notes"] = merged_notes
@@ -1292,6 +1303,7 @@ class LarkBaseCRMProvider(CRMProvider):
         sub_fields: dict[str, Any] = {
             "Subscription ID": sub_id,
             "Customer ID": customer.customer_id,
+            "Customer WhatsApp Number": customer.wa_id or customer.phone_e164 or "",
             "Package ID": pkg_id,
             "Device Count": customer.device_count or 1,
             "Duration Months": customer.subscription_months,
@@ -1361,6 +1373,15 @@ class LarkBaseCRMProvider(CRMProvider):
             m = re.search(r"Expires (\S+)", notes)
             if m:
                 kwargs.setdefault("subscription_expires_at", m.group(1))
+            m = re.search(r"User (\S+)", notes)
+            if m:
+                kwargs.setdefault("account_username", m.group(1))
+            m = re.search(r"Pass (\S+)", notes)
+            if m:
+                kwargs.setdefault("account_password", m.group(1))
+            m = re.search(r"Server (\S+)", notes)
+            if m:
+                kwargs.setdefault("server_url", m.group(1))
             valid = {k: v for k, v in kwargs.items() if k in CustomerRecord.__dataclass_fields__}
             rec = CustomerRecord(**valid)
             if wa_key:
@@ -1449,6 +1470,46 @@ class LarkBaseCRMProvider(CRMProvider):
                 fields["Completed At"] = self._as_iso(inst.setup_verified_at)
                 fields["Account Configured"] = True
                 fields["Playback Tested"] = True
+            if getattr(inst, "credited_sales_reseller_id", None):
+                fields["Credited Sales Reseller ID"] = inst.credited_sales_reseller_id
+            if getattr(inst, "assigned_installer_reseller_id", None):
+                fields["Assigned Installer Reseller ID"] = inst.assigned_installer_reseller_id
+            if getattr(inst, "installer_assignment_status", None):
+                fields["Installer Assignment Status"] = inst.installer_assignment_status
+            if getattr(inst, "assigned_at", None):
+                fields["Assigned At"] = self._as_iso(inst.assigned_at)
+            if getattr(inst, "accepted_at", None):
+                fields["Accepted At"] = self._as_iso(inst.accepted_at)
+            if getattr(inst, "install_mode", None):
+                fields["Install Mode"] = inst.install_mode
+            if getattr(inst, "approved_fee_sle", None):
+                fields["Approved Fee SLE"] = inst.approved_fee_sle
+            if getattr(inst, "fee_quote_version", None):
+                fields["Fee Quote Version"] = inst.fee_quote_version
+            if getattr(inst, "fee_approved_by", None):
+                fields["Fee Approved By"] = inst.fee_approved_by
+            if getattr(inst, "fee_approved_at", None):
+                fields["Fee Approved At"] = self._as_iso(inst.fee_approved_at)
+            if getattr(inst, "fee_received_verified_sle", None):
+                fields["Fee Received Verified SLE"] = inst.fee_received_verified_sle
+            if getattr(inst, "fee_payment_status", None):
+                fields["Fee Payment Status"] = inst.fee_payment_status
+            if getattr(inst, "customer_confirmed_working_at", None):
+                fields["Customer Confirmed Working At"] = self._as_iso(inst.customer_confirmed_working_at)
+            if getattr(inst, "completion_verified_by", None):
+                fields["Completion Verified By"] = inst.completion_verified_by
+            if getattr(inst, "completion_verified_at", None):
+                fields["Completion Verified At"] = self._as_iso(inst.completion_verified_at)
+            if getattr(inst, "qualified_at", None):
+                fields["Qualified At"] = self._as_iso(inst.qualified_at)
+            if getattr(inst, "qualified_month", None):
+                fields["Qualified Month YYYY-MM"] = inst.qualified_month
+            if getattr(inst, "commission_rate_snapshot", None):
+                fields["Commission Rate Snapshot %"] = inst.commission_rate_snapshot
+            if getattr(inst, "installation_earning_id", None):
+                fields["Installation Earning ID"] = inst.installation_earning_id
+            if getattr(inst, "monthly_count_eligible", None):
+                fields["Monthly Count Eligible"] = bool(inst.monthly_count_eligible)
             fields = {k: v for k, v in fields.items() if v not in (None, "")}
             return self._upsert_by_key("07_Installations", fields)[0]
 

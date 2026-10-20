@@ -192,6 +192,7 @@ class Agent:
         clock=None,
         reseller_mgr=None,
         admin_bot=None,
+        installer_mgr=None,
     ):
         self.settings = settings
         self.wa = wa
@@ -205,6 +206,10 @@ class Agent:
             from .reseller_bot import ResellerBotManager
             reseller_mgr = ResellerBotManager(getattr(crm, "provider", None) if crm else None, store=store)
         self.reseller_mgr = reseller_mgr
+        if installer_mgr is None:
+            from .installer_engine import InstallerManager
+            installer_mgr = InstallerManager(crm=crm, reseller_mgr=reseller_mgr, store=store, wa=wa)
+        self.installer_mgr = installer_mgr
         if admin_bot is None:
             from .admin_bot import AdminBotManager
             admin_bot = AdminBotManager(
@@ -214,6 +219,7 @@ class Agent:
                 wa=wa,
                 crm=crm,
                 reseller_mgr=reseller_mgr,
+                installer_mgr=installer_mgr,
             )
         self.admin_bot = admin_bot
         try:
@@ -476,6 +482,8 @@ class Agent:
             self._handle_payment_enquiry(conv)
         elif intent == "app_installed":
             self._handle_app_installed(conv)
+        elif intent == "credentials":
+            self._handle_customer_credentials_inquiry(conv)
         else:
             answered = self._answer_info(conv, text)
             if answered and conv.state not in (State.IDLE, State.FAQ_ONLY, State.HUMAN, State.OPTED_OUT):
@@ -538,6 +546,10 @@ class Agent:
         # Check for referral
         if toks & REFERRAL_KW:
             return "referral"
+
+        # Check for customer requesting their login credentials
+        if any(w in norm for w in ("credential", "login", "password", "username", "server url", "m3u", "contraseña", "mis datos", "usuario")):
+            return "credentials"
 
         # Check for support
         if toks & SUPPORT_KW:
@@ -858,7 +870,65 @@ class Agent:
     def _handle_app_installed(self, conv: Conversation) -> None:
         wa_id = conv.wa_id
         self.crm.record_app_installed(wa_id)
+        # Check if customer already has active credentials in Lark Base
+        customer = None
+        if self.crm and hasattr(self.crm, "provider") and hasattr(self.crm.provider, "get_customer_by_wa_id"):
+            try:
+                customer = self.crm.provider.get_customer_by_wa_id(wa_id)
+            except Exception:
+                pass
+        if customer and customer.account_username and customer.account_password:
+            server = customer.server_url or "http://stream.nexglotv.com:8080"
+            msg = (
+                "🎉 *Great! Your NexgloTV Player is Installed!*\n\n"
+                "Here are your official subscription login credentials:\n\n"
+                f"• *Server URL:* `{server}`\n"
+                f"• *Username:* `{customer.account_username}`\n"
+                f"• *Password:* `{customer.account_password}`\n\n"
+                "Enter these in the app to start streaming immediately! Enjoy your channels!"
+            )
+            self._send_text(wa_id, msg)
+            return
+
         self._escalate(conv, reason="setup_credentials", announce=True)
+
+    def _handle_customer_credentials_inquiry(self, conv: Conversation) -> None:
+        wa_id = conv.wa_id
+        customer = None
+        if self.crm and hasattr(self.crm, "provider") and hasattr(self.crm.provider, "get_customer_by_wa_id"):
+            try:
+                customer = self.crm.provider.get_customer_by_wa_id(wa_id)
+            except Exception:
+                pass
+
+        if customer and customer.account_username and customer.account_password:
+            server = customer.server_url or "http://stream.nexglotv.com:8080"
+            exp_str = customer.subscription_expires_at[:10] if customer.subscription_expires_at else "Active"
+            msg = (
+                "📺 *Your NexgloTV Account Credentials*\n\n"
+                f"• *Server URL:* `{server}`\n"
+                f"• *Username:* `{customer.account_username}`\n"
+                f"• *Password:* `{customer.account_password}`\n"
+                f"• *Subscription:* {customer.subscription_months} Month(s) × {customer.device_count} Screen(s)\n"
+                f"• *Status:* Active (Expires: {exp_str})\n\n"
+                "Enter these details in your app to start streaming! If you need further help, reply *HELP*."
+            )
+            self._send_text(wa_id, msg)
+            return
+
+        if customer:
+            self._send_text(
+                wa_id,
+                "ℹ️ Your subscription is being provisioned by our support team. "
+                "Our staff will send your IPTV login credentials right here shortly!",
+            )
+            self._escalate(conv, reason="setup_credentials")
+        else:
+            self._send_text(
+                wa_id,
+                "ℹ️ No active subscription found for this phone number. "
+                "Reply *MENU* to view packages or *TRIAL* for a free test line!",
+            )
 
     def _handle_trial_request(self, conv: Conversation) -> None:
         wa_id, lang = conv.wa_id, conv.lang
@@ -1143,6 +1213,54 @@ class Agent:
     def _check_and_handle_reseller(self, conv: Conversation, text: str) -> bool:
         wa_id = conv.wa_id
         upper = text.strip().upper()
+
+        # 0. Installer actions (Accept, Decline, Done, Stats)
+        if upper in ("MY STATS", "MY EARNINGS", "INSTALLER STATS", "INSTALL STATS", "INSTALL EARNINGS"):
+            if self.installer_mgr:
+                stats = self.installer_mgr.get_installer_stats(wa_id)
+                if stats.get("found"):
+                    msg = (
+                        f"📊 *Installer Performance: {stats['name']}*\n\n"
+                        f"• Role: *{stats['partner_role']}* (Status: {stats['approval_status']})\n"
+                        f"• Month: *{stats['target_month']}*\n"
+                        f"• Qualifying Installs: *{stats['month_qualifying_jobs']}*\n"
+                        f"• Performance Band: *{stats['provisional_band']}*\n"
+                        f"• Provisional Monthly Bonus: *SLE {stats['provisional_bonus_sle']:,}*\n"
+                        f"• Unpaid Installation Earnings: *SLE {stats['unpaid_installer_earnings_sle']:,}*\n"
+                        f"• Unpaid Sales Commissions (20%): *SLE {stats['subscription_commissions_unpaid_sle']:,}*\n"
+                        f"• Prepaid Wallet Balance: *SLE {stats['wallet_balance_sle']:,}*\n\n"
+                        "💡 *Note:* Wallet balance is separate from earned commissions and installation pay."
+                    )
+                    self._send_text(wa_id, msg)
+                    return True
+                else:
+                    self._send_text(wa_id, "🔒 *Restricted Command*\n\nOnly registered NexgloTV Partners can query installer stats.")
+                    return True
+
+        if upper.startswith("ACCEPT ") or upper.startswith("ACCEPT:"):
+            ins_id = re.sub(r"^ACCEPT\s*[:,]?\s*", "", text, flags=re.IGNORECASE).strip()
+            if self.installer_mgr:
+                ok, reply = self.installer_mgr.installer_accept_job(ins_id, caller_phone=wa_id)
+                self._send_text(wa_id, reply)
+                return True
+
+        if upper.startswith("DECLINE ") or upper.startswith("DECLINE:"):
+            parts = re.sub(r"^DECLINE\s*[:,]?\s*", "", text, flags=re.IGNORECASE).strip().split(maxsplit=1)
+            ins_id = parts[0] if parts else ""
+            reason = parts[1] if len(parts) > 1 else ""
+            if self.installer_mgr:
+                ok, reply = self.installer_mgr.installer_decline_job(ins_id, caller_phone=wa_id, reason=reason)
+                self._send_text(wa_id, reply)
+                return True
+
+        if upper.startswith("DONE ") or upper.startswith("COMPLETE "):
+            parts = re.sub(r"^(?:DONE|COMPLETE)\s*[:,]?\s*", "", text, flags=re.IGNORECASE).strip().split(maxsplit=1)
+            ins_id = parts[0] if parts else ""
+            notes = parts[1] if len(parts) > 1 else ""
+            if self.installer_mgr:
+                ok, reply = self.installer_mgr.installer_submit_completion(ins_id, caller_phone=wa_id, notes=notes)
+                self._send_text(wa_id, reply)
+                return True
 
         # 1. Fast explicit commands (always priority)
         if upper in ("BALANCE", "MY BALANCE", "WALLET BALANCE", "WALLET"):
@@ -1745,6 +1863,9 @@ class Agent:
             payment_method=parsed["payment_method"],
             payment_reference=parsed["payment_reference"],
             is_renewal=parsed.get("is_renewal", False),
+            account_username=parsed.get("account_username", ""),
+            account_password=parsed.get("account_password", ""),
+            server_url=parsed.get("server_url", ""),
         )
         if not res.get("success"):
             self._send_text(conv.wa_id, res.get("message") or "❌ Error recording sale.")
@@ -1785,6 +1906,9 @@ class Agent:
             customer_name=parsed["customer_name"],
             months=parsed["months"],
             devices=parsed["devices"],
+            account_username=parsed.get("account_username", ""),
+            account_password=parsed.get("account_password", ""),
+            server_url=parsed.get("server_url", ""),
         )
         if not res.get("success"):
             self._send_text(conv.wa_id, res.get("message") or "❌ Wallet activation failed.")

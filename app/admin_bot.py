@@ -47,6 +47,37 @@ def _mask_phone(phone: str) -> str:
     return f"{raw[:4]} *** {raw[-3:]}"
 
 
+def parse_phone_number(text: str) -> str:
+    """Extract and normalize a Sierra Leone or international phone number from text."""
+    m = re.search(r"(?:(?:\+|00)?232[\s\.\-]*)?[0-9]{2}[\s\.\-]*[0-9]{3}[\s\.\-]*[0-9]{3,4}\b|\b\d{8,15}\b", str(text or ""))
+    if m:
+        return normalize_phone_sl(m.group(0))
+    return ""
+
+
+def parse_package_spec(text: str) -> tuple[int, int]:
+    """Parse duration in months and device count from user/admin text."""
+    clean = str(text or "").lower()
+    months = 1
+    devices = 1
+    if "12m" in clean or "1 year" in clean or "12 month" in clean or "1y" in clean:
+        months = 12
+    elif "6m" in clean or "6 month" in clean:
+        months = 6
+    elif "3m" in clean or "3 month" in clean:
+        months = 3
+    elif "1m" in clean or "1 month" in clean:
+        months = 1
+
+    d_match = re.search(r"(\d+)\s*(?:device|screen|dev|tv|d\b)", clean)
+    if d_match:
+        try:
+            devices = max(1, min(5, int(d_match.group(1))))
+        except Exception:
+            devices = 1
+    return months, devices
+
+
 class AdminBotManager:
     """Handles admin commands issued via WhatsApp chat from verified admin phone numbers."""
 
@@ -58,6 +89,7 @@ class AdminBotManager:
         wa=None,
         crm=None,
         reseller_mgr=None,
+        installer_mgr=None,
     ):
         self.settings = settings
         self.store = store
@@ -65,6 +97,10 @@ class AdminBotManager:
         self.wa = wa
         self.crm = crm
         self.reseller_mgr = reseller_mgr
+        if installer_mgr is None:
+            from .installer_engine import InstallerManager
+            installer_mgr = InstallerManager(crm=crm, reseller_mgr=reseller_mgr, store=store, wa=wa)
+        self.installer_mgr = installer_mgr
 
     # =========================================================================
     # Verification & Admin Number Management
@@ -164,7 +200,21 @@ class AdminBotManager:
             upper.startswith("RESUBSCRIBE ") or
             upper.startswith("RENEWAL ") or
             upper.startswith("ACTIVATE ") or
-            upper.startswith("WALLET ACTIVATE ")
+            upper.startswith("WALLET ACTIVATE ") or
+            upper.startswith("CREDENTIALS ") or
+            upper.startswith("SET CREDENTIALS ") or
+            upper.startswith("SEND CREDENTIALS ") or
+            upper.startswith("SEND LOGIN ") or
+            upper.startswith("EDIT SALE ") or
+            upper.startswith("UPDATE SALE ") or
+            upper.startswith("INSTALL ") or
+            upper.startswith("ASSIGN ") or
+            upper.startswith("VERIFY INSTALL ") or
+            upper.startswith("VERIFY FEE ") or
+            upper.startswith("INSTALLER ") or
+            upper.startswith("INSTALLERS") or
+            upper.startswith("PARTNERS") or
+            upper.startswith("LOCK MONTH")
         )
 
         if not (is_explicit_admin or is_shortcut):
@@ -239,7 +289,15 @@ class AdminBotManager:
             phone_arg = parts[1].strip() if len(parts) > 1 else ""
             return self._cmd_pause(phone_arg)
 
-        # 9. ADMIN VERIFY <phone>
+        # 9. ADMIN VERIFY (INSTALL / FEE / <phone>)
+        if upper.startswith("VERIFY INSTALL") or upper.startswith("VERIFY_INSTALL"):
+            arg = re.sub(r"^VERIFY\s+INSTALL\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_verify_install(arg)
+
+        if upper.startswith("VERIFY FEE") or upper.startswith("VERIFY_FEE"):
+            arg = re.sub(r"^VERIFY\s+FEE\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_verify_fee(arg)
+
         if upper.startswith("VERIFY"):
             parts = clean.split(maxsplit=1)
             phone_arg = parts[1].strip() if len(parts) > 1 else ""
@@ -305,12 +363,51 @@ class AdminBotManager:
                 arg = re.sub(f"^{prefix}\\s*[:,]?\\s*", "", clean, flags=re.IGNORECASE).strip()
                 return self._cmd_sale(arg, is_renewal=True)
 
+        # 18b. ADMIN SET CREDENTIALS / CREDENTIALS
+        if upper.startswith("SET CREDENTIALS") or upper.startswith("SET_CREDENTIALS") or upper.startswith("CREDENTIALS") or upper.startswith("ACC ") or upper.startswith("ACCOUNT "):
+            arg = re.sub(r"^(?:SET\s+)?(?:CREDENTIALS|CRED|ACC|ACCOUNT)\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_set_credentials(arg)
+
+        # 18c. ADMIN SEND CREDENTIALS
+        if upper.startswith("SEND CREDENTIALS") or upper.startswith("SEND_CREDENTIALS") or upper.startswith("SEND CRED") or upper.startswith("SEND LOGIN"):
+            arg = re.sub(r"^SEND\s+(?:CREDENTIALS|CRED|LOGIN|ACC)\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_send_credentials(arg)
+
+        # 18d. ADMIN EDIT SALE / UPDATE SALE
+        if upper.startswith("EDIT SALE") or upper.startswith("EDIT_SALE") or upper.startswith("UPDATE SALE") or upper.startswith("UPDATE_SALE"):
+            arg = re.sub(r"^(?:EDIT|UPDATE)\s+SALE\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_edit_sale(arg)
+
         # 19. ADMIN CRM <subcommand>
         if upper.startswith("CRM"):
             parts = clean.split(maxsplit=2)
             sub = parts[1].upper() if len(parts) > 1 else "HELP"
             args = parts[2] if len(parts) > 2 else ""
             return self._cmd_crm(sub, args)
+
+        # 20. ADMIN INSTALL <phone> <name> <zone> [fee] [device]
+        if upper.startswith("INSTALL"):
+            arg = re.sub(r"^INSTALL\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_install(arg)
+
+        # 21. ADMIN ASSIGN <install_id> <reseller_id>
+        if upper.startswith("ASSIGN"):
+            arg = re.sub(r"^ASSIGN\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_assign(arg)
+
+        # 24. ADMIN INSTALLER STATS / STATS
+        if upper.startswith("INSTALLER STATS") or upper.startswith("INSTALLER_STATS"):
+            arg = re.sub(r"^INSTALLER\s+STATS\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_installer_stats(arg)
+
+        # 25. ADMIN INSTALLERS / PARTNERS
+        if upper in ("INSTALLERS", "PARTNERS", "INSTALLER LIST", "PARTNER LIST"):
+            return self._cmd_list_installers()
+
+        # 26. ADMIN LOCK MONTH <reseller_id> <YYYY-MM>
+        if upper.startswith("LOCK MONTH") or upper.startswith("LOCK_MONTH"):
+            arg = re.sub(r"^LOCK\s+MONTH\s*[:,]?\s*", "", clean, flags=re.IGNORECASE).strip()
+            return self._cmd_lock_month(arg)
 
         return (
             f"⚠️ Unknown admin instruction: `{clean}`\n\n"
@@ -327,6 +424,9 @@ class AdminBotManager:
             "• *ADMIN STATUS* — System health, model, DB, handoffs\n"
             "• *ADMIN SALE <phone>, <name>, <pkg>, <method>, <ref>* — Record direct sale\n"
             "• *ADMIN RENEW <phone>, <pkg>, <method>, <ref>* — Record direct renewal\n"
+            "• *ADMIN CREDENTIALS <phone> <user> <pass> [server]* — Assign IPTV login details\n"
+            "• *ADMIN SEND CREDENTIALS <phone>* — Send credentials directly to customer via WhatsApp\n"
+            "• *ADMIN EDIT SALE <phone> [field: val]* — Update recorded sale details\n"
             "• *ADMIN CRM CUSTOMER <phone>* — Inspect subscriber in Lark Base\n"
             "• *ADMIN CRM LEAD <phone>* — Inspect lead in Lark Base\n"
             "• *ADMIN CRM STAGE <phone> <stage>* — Update lead funnel stage\n"
@@ -851,6 +951,9 @@ class AdminBotManager:
             last_renewed_at=now_iso if renewal_count > 0 else "",
             created_at=existing.created_at if existing and existing.created_at else now_iso,
             updated_at=now_iso,
+            account_username=parsed.get("account_username") or (getattr(existing, "account_username", "") if existing else ""),
+            account_password=parsed.get("account_password") or (getattr(existing, "account_password", "") if existing else ""),
+            server_url=parsed.get("server_url") or (getattr(existing, "server_url", "") if existing else ""),
         )
         self._upsert_customer(customer)
 
@@ -896,6 +999,10 @@ class AdminBotManager:
             if hasattr(self.store, "set_handoff"):
                 self.store.set_handoff(phone, False)
 
+        cred_info = ""
+        if customer.account_username:
+            cred_info = f"\n• IPTV Username: `{customer.account_username}`\n• IPTV Password: `{customer.account_password}`\n• Server URL: `{customer.server_url or 'Default'}`"
+
         # Format confirmation response
         if is_resub and renewal_count > 0:
             return (
@@ -906,7 +1013,7 @@ class AdminBotManager:
                 f"• Renewal Count: *{renewal_count}*\n"
                 f"• Amount Paid: Le{sale_amount:,} ({method})\n"
                 f"• Reference: `{ref}`\n"
-                f"• New Expiry: {expires_iso[:10]}\n"
+                f"• New Expiry: {expires_iso[:10]}{cred_info}\n"
                 "• Synced to Lark Base `03_Customers` & `05_Subscriptions`."
             )
         else:
@@ -917,10 +1024,211 @@ class AdminBotManager:
                 f"• Plan: {months} month(s) × {devices} device(s)\n"
                 f"• Amount Paid: Le{sale_amount:,} ({method})\n"
                 f"• Reference: `{ref}`\n"
-                f"• Expiry Date: {expires_iso[:10]}\n"
+                f"• Expiry Date: {expires_iso[:10]}{cred_info}\n"
                 "• Reseller: `DIRECT` (No commission)\n"
                 "• Synced to Lark Base `01_Leads`, `03_Customers`, `05_Subscriptions`, & `06_Payments`."
             )
+
+    def _cmd_set_credentials(self, arg: str) -> str:
+        if not arg or not arg.strip():
+            return (
+                "ℹ️ *Set Customer Account Credentials*\n\n"
+                "Assign IPTV login credentials to a customer account:\n"
+                "• `ADMIN CREDENTIALS <phone> <username> <password> [server_url]`\n"
+                "• `ADMIN CREDENTIALS 076123456 foday77 pass88 http://stream.nexglotv.com:8080`\n"
+                "• `ADMIN CREDENTIALS 076123456 user: foday77 pass: pass88`\n\n"
+                "Credentials will be synced directly to Lark Base `03_Customers`."
+            )
+
+        phone = parse_phone_number(arg)
+        if not phone:
+            return "⚠️ Could not detect a valid customer phone number in your instruction."
+
+        customer = self._get_customer(phone)
+        if not customer:
+            return f"⚠️ No customer record found for `{phone}`. Please register the customer first with `ADMIN SALE`."
+
+        username = ""
+        password = ""
+        server_url = ""
+
+        u_match = re.search(r"(?:user(?:name)?|acc(?:ount)?|iptv_user)[:\s]+([a-zA-Z0-9_.@\-]+)", arg, re.I)
+        if u_match:
+            username = u_match.group(1).strip()
+        p_match = re.search(r"(?:pass(?:word)?|pwd|iptv_pass)[:\s]+([a-zA-Z0-9_.@\-!#%]+)", arg, re.I)
+        if p_match:
+            password = p_match.group(1).strip()
+        s_match = re.search(r"(?:server(?:_url)?|portal|url|host)[:\s]+(https?://[^\s,;]+|[a-zA-Z0-9.\-]+:\d+)", arg, re.I)
+        if s_match:
+            server_url = s_match.group(1).strip()
+
+        if not username or not password:
+            clean_arg = arg
+            phone_raw = re.search(r"(?:(?:\+|00)?232[\s\.\-]*)?[0-9]{2}[\s\.\-]*[0-9]{3}[\s\.\-]*[0-9]{3,4}\b|\b\d{8,15}\b", clean_arg)
+            if phone_raw:
+                clean_arg = clean_arg.replace(phone_raw.group(0), " ")
+            tokens = [t.strip(",.:;#-()\"'") for t in clean_arg.split() if t.strip(",.:;#-()\"'")]
+            if len(tokens) >= 2:
+                if not username:
+                    username = tokens[0]
+                if not password:
+                    password = tokens[1]
+                if not server_url and len(tokens) >= 3:
+                    server_url = tokens[2]
+
+        if not username or not password:
+            return (
+                "⚠️ Username and password are required.\n"
+                "Usage: `ADMIN CREDENTIALS <phone> <username> <password> [server_url]`"
+            )
+
+        if not server_url:
+            server_url = customer.server_url or "http://stream.nexglotv.com:8080"
+
+        customer.account_username = username
+        customer.account_password = password
+        customer.server_url = server_url
+        self._upsert_customer(customer)
+
+        return (
+            "✅ *Account Credentials Saved & Synced!*\n\n"
+            f"• Customer: *{customer.name}* (`{customer.wa_id}`)\n"
+            f"• IPTV Username: `{username}`\n"
+            f"• IPTV Password: `{password}`\n"
+            f"• Server URL: `{server_url}`\n"
+            "• Synced to Lark Base `03_Customers`.\n\n"
+            f"💡 To send to customer via WhatsApp:\n`ADMIN SEND CREDENTIALS {phone}`"
+        )
+
+    def _cmd_send_credentials(self, phone_arg: str) -> str:
+        clean = (phone_arg or "").strip()
+        if not clean:
+            return "⚠️ Please specify customer phone:\n`ADMIN SEND CREDENTIALS 076123456`"
+
+        phone = parse_phone_number(clean) or normalize_phone_sl(clean)
+        customer = self._get_customer(phone)
+        if not customer:
+            return f"⚠️ No customer found for `{phone}`."
+
+        if not customer.account_username or not customer.account_password:
+            return (
+                f"⚠️ Customer *{customer.name}* has no credentials saved yet.\n"
+                f"Set credentials first:\n`ADMIN CREDENTIALS {phone} <username> <password>`"
+            )
+
+        server = customer.server_url or "http://stream.nexglotv.com:8080"
+        exp_str = customer.subscription_expires_at[:10] if customer.subscription_expires_at else "Active"
+        msg = (
+            "📺 *Your NexgloTV Subscription Credentials*\n\n"
+            "Here are your official login details to access all channels and movies:\n\n"
+            f"• *Server URL:* `{server}`\n"
+            f"• *Username:* `{customer.account_username}`\n"
+            f"• *Password:* `{customer.account_password}`\n"
+            f"• *Subscription:* {customer.subscription_months} Month(s) × {customer.device_count} Screen(s)\n"
+            f"• *Status:* Active (Expires: {exp_str})\n\n"
+            "📱 Enter these details into your NexgloTV App, IPTV Smarters, or XCIPTV to start streaming immediately!\n"
+            "If you need setup assistance or a download link, reply *HELP* anytime."
+        )
+        self._send(customer.wa_id, msg)
+
+        return (
+            f"✅ *Credentials Successfully Delivered to Customer!*\n\n"
+            f"• Recipient: *{customer.name}* (`{customer.wa_id}`)\n"
+            f"• Username: `{customer.account_username}`\n"
+            f"• Delivered via WhatsApp Meta API."
+        )
+
+    def _cmd_edit_sale(self, arg: str) -> str:
+        if not arg or not arg.strip():
+            return (
+                "ℹ️ *Edit Recorded Sale Command*\n\n"
+                "Update specific fields of an existing customer sale:\n"
+                "• `ADMIN EDIT SALE 076123456 name: John Koroma`\n"
+                "• `ADMIN EDIT SALE 076123456 user: jkoroma pass: secret99`\n"
+                "• `ADMIN EDIT SALE 076123456 package: 3 months 2 devices`\n"
+                "• `ADMIN EDIT SALE 076123456 ref: OM998877 method: Afrimoney`\n\n"
+                "Updates are synced to Lark Base `03_Customers`, `05_Subscriptions`, and `06_Payments`."
+            )
+
+        phone = parse_phone_number(arg)
+        if not phone:
+            return "⚠️ Could not detect customer phone number in your instruction."
+
+        customer = self._get_customer(phone)
+        if not customer:
+            return f"⚠️ No customer record found for `{phone}`. Use `ADMIN SALE` to register a new sale."
+
+        updated_fields = []
+
+        # 1. Name
+        label_m = re.search(r"(?:name|customer|nombre)[:\s]+(.+?)(?=\s+(?:user|pass|server|pkg|package|ref|method|price)|$)", arg, re.I)
+        if label_m:
+            new_name = label_m.group(1).strip()
+            if new_name and len(new_name) >= 2:
+                customer.name = new_name
+                updated_fields.append(f"Name: *{new_name}*")
+
+        # 2. Credentials
+        u_match = re.search(r"(?:user(?:name)?|acc(?:ount)?|iptv_user)[:\s]+([a-zA-Z0-9_.@\-]+)", arg, re.I)
+        if u_match:
+            customer.account_username = u_match.group(1).strip()
+            updated_fields.append(f"Username: `{customer.account_username}`")
+
+        p_match = re.search(r"(?:pass(?:word)?|pwd|iptv_pass)[:\s]+([a-zA-Z0-9_.@\-!#%]+)", arg, re.I)
+        if p_match:
+            customer.account_password = p_match.group(1).strip()
+            updated_fields.append(f"Password: `{customer.account_password}`")
+
+        s_match = re.search(r"(?:server(?:_url)?|portal|url|host)[:\s]+(https?://[^\s,;]+|[a-zA-Z0-9.\-]+:\d+)", arg, re.I)
+        if s_match:
+            customer.server_url = s_match.group(1).strip()
+            updated_fields.append(f"Server URL: `{customer.server_url}`")
+
+        # 3. Package
+        if any(w in arg.lower() for w in ("month", "year", "dev", "screen", "pkg", "package", "1m", "3m", "6m", "12m")):
+            months, devices = parse_package_spec(arg)
+            if months != customer.subscription_months or devices != customer.device_count:
+                customer.subscription_months = months
+                customer.device_count = devices
+                quote = calculate_price(months, devices)
+                customer.amount_paid_le = quote.final_price
+                customer.package_code = f"{months}m_{devices}d"
+                now_dt = datetime.now(timezone.utc)
+                customer.subscription_expires_at = (now_dt + timedelta(days=months * 30)).isoformat()
+                updated_fields.append(f"Plan: {months}m × {devices}d (Le{quote.final_price:,})")
+
+        # 4. Payment Reference
+        ref_match = re.search(r"(?:ref(?:erence)?|txn(?:\s*id)?|code)[:\s]+([a-zA-Z0-9\-_]{4,32})", arg, re.I)
+        if ref_match:
+            customer.transaction_reference = ref_match.group(1).strip()
+            updated_fields.append(f"Payment Ref: `{customer.transaction_reference}`")
+
+        # 5. Payment Method
+        if "orange" in arg.lower():
+            customer.payment_method = "Orange Money"
+            updated_fields.append("Method: Orange Money")
+        elif "afri" in arg.lower():
+            customer.payment_method = "Afrimoney"
+            updated_fields.append("Method: Afrimoney")
+        elif "bank" in arg.lower() or "transfer" in arg.lower():
+            customer.payment_method = "Bank Transfer"
+            updated_fields.append("Method: Bank Transfer")
+        elif "cash" in arg.lower():
+            customer.payment_method = "Cash"
+            updated_fields.append("Method: Cash")
+
+        if not updated_fields:
+            return "⚠️ No valid field updates detected. Use `name: ...`, `user: ...`, `pass: ...`, `ref: ...`, or `package: ...`."
+
+        self._upsert_customer(customer)
+
+        summary = "\n".join([f"• {f}" for f in updated_fields])
+        return (
+            f"✅ *Customer Sale Info Updated!*\n\n"
+            f"• Customer: *{customer.name}* (`{customer.wa_id}`)\n"
+            f"{summary}\n\n"
+            "• Synced to Lark Base `03_Customers` & `05_Subscriptions`."
+        )
 
     # =========================================================================
     # Lark CRM WhatsApp Actions
@@ -1015,6 +1323,9 @@ class AdminBotManager:
             f"• Amount Paid: Le{cust.amount_paid_le:,} ({cust.payment_method or 'Direct'})\n"
             f"• Payment Ref: `{cust.transaction_reference or 'N/A'}`\n"
             f"• Expiry Date: {cust.subscription_expires_at[:10] if cust.subscription_expires_at else 'N/A'}\n"
+            f"• IPTV Username: `{cust.account_username or 'Not Set'}`\n"
+            f"• IPTV Password: `{cust.account_password or 'Not Set'}`\n"
+            f"• Server URL: `{cust.server_url or 'Default'}`\n"
             f"• Renewal Count: {cust.renewal_count}\n"
             f"• Reseller / Origin: `{cust.reseller_code or 'DIRECT'}`\n"
             "• Synced to Lark Base `03_Customers` & `05_Subscriptions`."
@@ -1206,6 +1517,9 @@ class AdminBotManager:
                         account_status=str(row.get("Subscription Status", "active")).lower(),
                         renewal_count=int(row.get("Renewal Count") or 0),
                         reseller_code=str(row.get("Reseller Code", "DIRECT")),
+                        account_username=str(row.get("Account Username", "")),
+                        account_password=str(row.get("Account Password", "")),
+                        server_url=str(row.get("Server URL", "")),
                     )
             except Exception as exc:
                 log.debug("Lark live customer lookup error: %s", exc)
@@ -1306,3 +1620,163 @@ class AdminBotManager:
             except Exception as exc:
                 log.warning("Admin lead upsert error: %s", exc)
         return False
+
+    # =========================================================================
+    # Reseller + Installer Program Operations
+    # =========================================================================
+
+    def _cmd_install(self, arg: str) -> str:
+        from app.installer_engine import calculate_installer_earning
+        if not arg or not arg.strip() or arg.upper() in ("HELP", "?"):
+            return (
+                "ℹ️ *Admin Installation Booking Command*\n\n"
+                "Register a customer installation booking:\n"
+                "• `ADMIN INSTALL <phone> <name> <zone> [fee] [notes]`\n"
+                "• `ADMIN INSTALL 076123456 Lansana Sesay Freetown West End 120 Smart TV 2 screens`\n\n"
+                "Standard physical visit fee is minimum SLE 100."
+            )
+
+        phone = parse_phone_number(arg)
+        if not phone:
+            return "⚠️ Could not detect customer phone number in instruction."
+
+        clean = arg
+        raw_m = re.search(r"(?:(?:\+|00)?232[\s\.\-]*)?[0-9]{2}[\s\.\-]*[0-9]{3}[\s\.\-]*[0-9]{3,4}|\b\d{8,15}\b", clean)
+        clean_no_phone = clean
+        if raw_m:
+            clean_no_phone = clean[:raw_m.start()] + " " + clean[raw_m.end():]
+        if phone:
+            clean_no_phone = clean_no_phone.replace(phone, " ")
+
+        fee = 100
+        fee_m = re.search(r"\b(?:fee|sle|le)?[:\s]*(\d{3,5})\b", clean_no_phone, re.I)
+        if fee_m:
+            try:
+                fee = int(fee_m.group(1))
+                clean_no_phone = clean_no_phone[:fee_m.start()] + " " + clean_no_phone[fee_m.end():]
+            except Exception:
+                fee = 100
+
+        months, devices = parse_package_spec(clean)
+        tokens = [t for t in clean_no_phone.split() if t.strip()]
+        name = "Customer"
+        area = "Western Area"
+        if len(tokens) >= 2:
+            name = f"{tokens[0]} {tokens[1]}"
+            area = " ".join(tokens[2:]) if len(tokens) > 2 else "Western Area"
+        elif len(tokens) == 1:
+            name = tokens[0]
+
+        inst = self.installer_mgr.create_installation_job(
+            customer_phone=phone,
+            customer_name=name,
+            area=area,
+            quoted_fee_sle=fee,
+            device_count=devices,
+            install_mode="Paid Physical",
+            staff_id="ADMIN",
+        )
+
+        quote = calculate_installer_earning(inst.approved_fee_sle)
+        return (
+            f"🛠️ *Installation Booking Created*\n\n"
+            f"• *Job ID:* `{inst.installation_id}`\n"
+            f"• *Customer:* {inst.customer_name} (`{inst.wa_id}`)\n"
+            f"• *Location:* {inst.area}\n"
+            f"• *Screens:* {inst.device_count} × {inst.device_platform}\n"
+            f"• *Approved Fee:* SLE {inst.approved_fee_sle:,}\n"
+            f"• *40% Installer Cut:* SLE {int(quote['installer_earning_sle']):,}\n"
+            f"• *60% Company Retained:* SLE {int(quote['company_retained_sle']):,}\n\n"
+            f"👉 To assign an installer partner:\n`ADMIN ASSIGN {inst.installation_id} <reseller_id>`"
+        )
+
+    def _cmd_assign(self, arg: str) -> str:
+        parts = arg.split(maxsplit=1)
+        if len(parts) < 2:
+            return (
+                "ℹ️ *Assign Installation Command*\n\n"
+                "Offer an installation job to an approved partner:\n"
+                "• `ADMIN ASSIGN <install_id> <reseller_id_or_phone>`\n"
+                "• `ADMIN ASSIGN INS-101 RES-PILOT-001`"
+            )
+        install_id = parts[0].strip()
+        partner_id = parts[1].strip()
+        ok, reply = self.installer_mgr.offer_job(install_id, partner_id, staff_id="ADMIN")
+        return reply
+
+    def _cmd_verify_install(self, arg: str) -> str:
+        install_id = arg.strip()
+        if not install_id:
+            return "⚠️ Please specify Installation ID:\n`ADMIN VERIFY INSTALL INS-101`"
+        ok, reply = self.installer_mgr.staff_verify_completion(install_id, staff_id="ADMIN")
+        return reply
+
+    def _cmd_verify_fee(self, arg: str) -> str:
+        parts = arg.split()
+        if len(parts) < 2:
+            return (
+                "ℹ️ *Verify Installation Fee Command*\n\n"
+                "Confirm collection of physical installation fee:\n"
+                "• `ADMIN VERIFY FEE <install_id> <amount> [reference]`\n"
+                "• `ADMIN VERIFY FEE INS-101 120 OM998877`"
+            )
+        install_id = parts[0].strip()
+        try:
+            amount = int(parts[1].strip())
+        except Exception:
+            return f"⚠️ Invalid amount `{parts[1]}`. Must be a number."
+        ref = parts[2].strip() if len(parts) > 2 else ""
+        ok, reply = self.installer_mgr.finance_verify_fee(install_id, amount, payment_reference=ref, staff_id="FINANCE")
+        return reply
+
+    def _cmd_installer_stats(self, arg: str) -> str:
+        clean = (arg or "").strip()
+        if not clean:
+            return "⚠️ Please specify partner ID, code, or phone:\n`ADMIN INSTALLER STATS RES-PILOT-001`"
+        stats = self.installer_mgr.get_installer_stats(clean)
+        if not stats.get("found"):
+            return f"❌ Partner `{clean}` not found."
+        return (
+            f"📊 *Installer Performance Summary: {stats['name']}*\n\n"
+            f"• Partner ID: `{stats['reseller_id']}` ({stats['reseller_code']})\n"
+            f"• Role: *{stats['partner_role']}* (Status: {stats['approval_status']})\n"
+            f"• Month: *{stats['target_month']}*\n"
+            f"• Qualifying Physical Installs: *{stats['month_qualifying_jobs']}*\n"
+            f"• Performance Band: *{stats['provisional_band']}*\n"
+            f"• Provisional Monthly Bonus: *SLE {stats['provisional_bonus_sle']:,}*\n"
+            f"• Unpaid Installation Earnings: *SLE {stats['unpaid_installer_earnings_sle']:,}*\n"
+            f"• Unpaid Sales Commissions: *SLE {stats['subscription_commissions_unpaid_sle']:,}*\n"
+            f"• Prepaid Wallet Balance: *SLE {stats['wallet_balance_sle']:,}*"
+        )
+
+    def _cmd_lock_month(self, arg: str) -> str:
+        parts = arg.split()
+        if len(parts) < 2:
+            return (
+                "ℹ️ *Lock Month Performance Command*\n\n"
+                "Close an installer month and award one approved bonus:\n"
+                "• `ADMIN LOCK MONTH <reseller_id> <YYYY-MM>`\n"
+                "• `ADMIN LOCK MONTH RES-PILOT-001 2026-10`"
+            )
+        reseller_id = parts[0].strip()
+        month = parts[1].strip()
+        ok, reply = self.installer_mgr.lock_month_and_award_bonus(reseller_id, month, locked_by="FINANCE")
+        return reply
+
+    def _cmd_list_installers(self) -> str:
+        partners = []
+        if self.reseller_mgr:
+            for p in self.reseller_mgr._resellers_by_code.values():
+                if p not in partners:
+                    partners.append(p)
+        if not partners:
+            return "ℹ️ No registered partners in database."
+
+        lines = ["👥 *NexgloTV Partner & Installer Directory*:\n"]
+        for p in partners:
+            role = getattr(p, "partner_role", "Reseller Only")
+            status = getattr(p, "installer_approval_status", "Not Applied")
+            lines.append(f"• *{p.name}* (`{p.reseller_id}` / `{p.reseller_code}`)")
+            lines.append(f"  Phone: `{p.phone}` | Role: *{role}* | Installer: *{status}*")
+            lines.append(f"  Wallet: SLE {p.wallet_balance:,} | Unpaid Sales Comm: SLE {p.unpaid_commissions:,} | Unpaid Install: SLE {getattr(p, 'unpaid_installer_earnings', 0):,}\n")
+        return "\n".join(lines)

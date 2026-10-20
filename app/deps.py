@@ -46,6 +46,7 @@ class Services:
     automations: Optional[AutomationRunner] = None
     reseller_mgr: Optional[Any] = None
     admin_bot: Optional[Any] = None
+    installer_mgr: Optional[Any] = None
 
 
 def build_services(
@@ -142,6 +143,9 @@ def build_services(
     from .reseller_bot import ResellerBotManager
     reseller_mgr = ResellerBotManager(getattr(crm, "provider", None), store=store)
 
+    from .installer_engine import InstallerManager
+    installer_mgr = InstallerManager(crm=crm, reseller_mgr=reseller_mgr, store=store, wa=wa)
+
     from .admin_bot import AdminBotManager
     admin_bot = AdminBotManager(
         settings=settings,
@@ -150,6 +154,7 @@ def build_services(
         wa=wa,
         crm=crm,
         reseller_mgr=reseller_mgr,
+        installer_mgr=installer_mgr,
     )
 
     agent = Agent(
@@ -163,6 +168,7 @@ def build_services(
         clock=clock,
         reseller_mgr=reseller_mgr,
         admin_bot=admin_bot,
+        installer_mgr=installer_mgr,
     )
     svc = Services(
         settings=settings,
@@ -176,6 +182,7 @@ def build_services(
         clock=clock,
         reseller_mgr=reseller_mgr,
         admin_bot=admin_bot,
+        installer_mgr=installer_mgr,
     )
     svc.automations = AutomationRunner(svc)
     return svc

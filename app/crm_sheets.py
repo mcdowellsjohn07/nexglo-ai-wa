@@ -115,6 +115,9 @@ class CustomerRecord:
     reseller_code: str = ""
     renewal_count: int = 0
     last_renewed_at: str = ""
+    account_username: str = ""
+    account_password: str = ""
+    server_url: str = ""
     created_at: str = ""
     updated_at: str = ""
 
@@ -155,8 +158,11 @@ class InstallationRecord:
     installation_id: str
     lead_id: str = ""
     wa_id: str = ""
+    customer_id: str = ""
+    customer_name: str = ""
     device_platform: str = ""
     device_model: str = ""
+    device_count: int = 1
     installation_method: str = ""
     area: str = ""
     address_if_booked: str = ""
@@ -169,6 +175,94 @@ class InstallationRecord:
     setup_status: str = "pending"
     setup_verified_at: str = ""
     issue_note: str = ""
+    # Unified Partner & Installer Fields
+    credited_sales_reseller_id: str = ""
+    assigned_installer_reseller_id: str = ""
+    installer_assignment_status: str = "Unassigned"  # Unassigned, Offered, Accepted, Declined, Reassigned, Cancelled
+    assigned_at: str = ""
+    accepted_at: str = ""
+    install_mode: str = "Paid Physical"  # Paid Physical, Free Remote, Self-Install, Revisit/Support
+    quoted_fee_sle: int = 0
+    approved_fee_sle: int = 0
+    fee_quote_version: str = "v1"
+    fee_approved_by: str = ""
+    fee_approved_at: str = ""
+    installation_fee_payment_id: str = ""
+    fee_received_verified_sle: int = 0
+    fee_payment_status: str = "Unpaid"  # Unpaid, Pending Verification, Verified, Refunded
+    customer_confirmed_working_at: str = ""
+    completion_verified_by: str = ""
+    completion_verified_at: str = ""
+    qualified_at: str = ""
+    qualified_month: str = ""
+    commission_rate_snapshot: int = 40
+    installation_earning_id: str = ""
+    monthly_count_eligible: bool = False
+    revisit_of_id: str = ""
+    refund_dispute_hold: bool = False
+    whatsapp_conversation_ref: str = ""
+    last_bot_event_id: str = ""
+
+    def to_row(self) -> list:
+        return [getattr(self, f) for f in self.__dataclass_fields__]
+
+    @classmethod
+    def headers(cls) -> list[str]:
+        return list(cls.__dataclass_fields__.keys())
+
+
+@dataclass
+class InstallerEarningRecord:
+    earning_id: str
+    reseller_id: str
+    earning_type: str = "INSTALLATION_BASE"  # INSTALLATION_BASE, INSTALLATION_ADJUSTMENT, MONTHLY_BONUS, BONUS_ADJUSTMENT
+    installation_id: str = ""
+    performance_month: str = ""
+    idempotency_key: str = ""
+    basis_fee_sle: int = 0
+    rate_snapshot_pct: int = 40
+    signed_earning_sle: int = 0
+    status: str = "Approved"  # Draft, Hold, Earned, Approved, Partially Paid, Paid, Reversed
+    qualified_at: str = ""
+    approved_by: str = ""
+    approved_at: str = ""
+    linked_payout_id: str = ""
+    settled_sle: int = 0
+    outstanding_sle: int = 0
+    recoverable_sle: int = 0
+    origin_event_id: str = ""
+    policy_version: str = "v1.0"
+    correction_reason: str = ""
+    created_at: str = ""
+
+    def to_row(self) -> list:
+        return [getattr(self, f) for f in self.__dataclass_fields__]
+
+    @classmethod
+    def headers(cls) -> list[str]:
+        return list(cls.__dataclass_fields__.keys())
+
+
+@dataclass
+class InstallerMonthlyPerformanceRecord:
+    performance_id: str
+    reseller_id: str
+    performance_month: str  # YYYY-MM
+    period_start: str = ""
+    period_end: str = ""
+    installer_role_effective_date: str = ""
+    qualifying_installation_ids: str = ""
+    qualifying_count: int = 0
+    provisional_band: str = "None"
+    provisional_bonus_sle: int = 0
+    closed_band: str = "None"
+    approved_bonus_amount_sle: int = 0
+    closure_status: str = "Open"  # Open, Under Review, Locked, Paid, Adjusted
+    locked_at: str = ""
+    locked_by: str = ""
+    bonus_earning_id: str = ""
+    payout_state: str = "Unpaid"
+    exception_notes: str = ""
 
     def to_row(self) -> list:
         return [getattr(self, f) for f in self.__dataclass_fields__]
@@ -371,7 +465,13 @@ class MockCRMProvider(CRMProvider):
         return True
 
     def get_customer_by_wa_id(self, wa_id: str) -> Optional[CustomerRecord]:
-        return self.customers.get(wa_id)
+        if wa_id in self.customers:
+            return self.customers[wa_id]
+        clean = str(wa_id or "").lstrip("+")
+        for k, v in self.customers.items():
+            if k == clean or str(k).lstrip("+") == clean or (clean and clean in str(k)):
+                return v
+        return None
 
     def upsert_payment(self, payment: PaymentRecord) -> bool:
         if not payment.payment_id:
@@ -842,6 +942,9 @@ class CRMService:
         payment_id: str,
         verified_by: str,
         customer_id: Optional[str] = None,
+        account_username: str = "",
+        account_password: str = "",
+        server_url: str = "",
     ) -> Optional[CustomerRecord]:
         try:
             lead = self.provider.get_lead_by_wa_id(wa_id)
@@ -869,6 +972,12 @@ class CRMService:
             customer.amount_paid_le = lead.subscription_quote_le
             customer.payment_verified_at = now
             customer.account_status = "active"
+            if account_username:
+                customer.account_username = account_username
+            if account_password:
+                customer.account_password = account_password
+            if server_url:
+                customer.server_url = server_url
         else:
             customer = CustomerRecord(
                 customer_id=customer_id or str(uuid4()),
@@ -886,6 +995,9 @@ class CRMService:
                 activation_at=now,
                 subscription_expires_at=expires_at,
                 account_status="active",
+                account_username=account_username,
+                account_password=account_password,
+                server_url=server_url,
                 created_at=now,
             )
         try:
