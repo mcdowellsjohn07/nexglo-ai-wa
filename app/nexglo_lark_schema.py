@@ -544,6 +544,7 @@ TABLE_WA_FIELD: dict[str, str] = {
     "01_Leads": "WhatsApp Number", "02_Free_Trials": "WhatsApp Number",
     "03_Customers": "WhatsApp Number", "05_Subscriptions": "Customer WhatsApp Number",
     "09_Resellers": "WhatsApp Number",
+    "15_Staff": "Work Phone",
     "22_WhatsApp_Action_Queue": "Target WhatsApp ID",
 }
 
