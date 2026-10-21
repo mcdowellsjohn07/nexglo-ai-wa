@@ -95,7 +95,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       flex-wrap: wrap;
       gap: 10px;
     }
-    .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; gap: 12px; }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      font-size: 13px;
+      gap: 12px;
+    }
+    .stat-row > span:first-child {
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
     .stat-row:last-child { border-bottom: none; }
     .badge {
       display: inline-block;
@@ -251,10 +263,23 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="stat-row"><span>Subscription Commission:</span> <strong>20% (Verified Sales)</strong></div>
       <div class="stat-row"><span>Installation Commission:</span> <strong>40% (Min SLE 100 Fee)</strong></div>
       <div class="stat-row"><span>Company Fee Retained:</span> <strong>60% Before Costs</strong></div>
-      <div class="stat-row"><span>Monthly Bonus Bands:</span> <span class="badge badge-blue">Bronze (50) &bull; Silver (125) &bull; Gold (250) &bull; Diamond (750)</span></div>
-      <div class="stat-row"><span>Ledger Isolation:</span> <span>Wallet &ne; Commissions &ne; Install</span></div>
+      <div class="stat-row"><span>Ledger Isolation:</span> <span>Wallet &ne; Comm &ne; Install</span></div>
       <div class="stat-row"><span>Master Lark Base:</span> <span class="badge badge-blue">E8jObNOA... (21 Tables)</span></div>
       
+      <div style="margin-top: 10px; padding: 10px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px;">
+        <div style="font-size: 12px; font-weight: 600; color: #a5b4fc; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span>🏆 Monthly Bonus Ladder</span>
+          <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;">Non-cumulative max</span>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <span class="badge badge-blue" style="font-size: 11px; padding: 3px 7px;">5–9: <strong>SLE 50</strong></span>
+          <span class="badge badge-blue" style="font-size: 11px; padding: 3px 7px;">10–19: <strong>SLE 125</strong></span>
+          <span class="badge badge-blue" style="font-size: 11px; padding: 3px 7px;">20–29: <strong>SLE 250</strong></span>
+          <span class="badge badge-blue" style="font-size: 11px; padding: 3px 7px;">30–49: <strong>SLE 450</strong></span>
+          <span class="badge badge-blue" style="font-size: 11px; padding: 3px 7px;">50+: <strong>SLE 750</strong></span>
+        </div>
+      </div>
+
       <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
         <a href="https://open.larksuite.com" target="_blank" style="text-decoration: none;">
           <button style="width: 100%; background: #4f46e5; color: #fff; font-weight: 600;">📊 Open Lark Master CRM Base</button>
