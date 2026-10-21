@@ -611,36 +611,69 @@ class AdminBotManager:
         return f"⏸️ *Bot Paused for {target_wa}!*\nThe customer is now in human staff mode. Bot will remain silent."
 
     def _cmd_verify_payment(self, phone: str) -> str:
-        clean = re.sub(r"[^\d]", "", phone or "")
+        clean = (phone or "").strip()
         if not clean:
-            return "⚠️ Please provide the customer phone number:\n`ADMIN VERIFY 076123456`"
+            return "⚠️ Please provide the customer phone number:\n`ADMIN VERIFY 076123456 [user: ...] [pass: ...]`"
 
-        norm = normalize_phone_sl(clean)
+        norm = parse_phone_number(clean) or normalize_phone_sl(clean)
+        if not norm:
+            return "⚠️ Could not detect customer phone number in instruction."
+
         target_wa = None
         if self.store and hasattr(self.store, "list_conversations"):
             for c in self.store.list_conversations():
-                if phone_matches(clean, c.wa_id):
+                if phone_matches(norm, c.wa_id):
                     target_wa = c.wa_id
                     break
 
         target_wa = target_wa or norm
+
+        username = ""
+        password = ""
+        server_url = ""
+        u_match = re.search(r"(?:user(?:name)?|acc(?:ount)?|login)[:\s]+([a-zA-Z0-9_.@\-]+)", clean, re.I)
+        if u_match:
+            username = u_match.group(1).strip()
+        p_match = re.search(r"(?:pass(?:word)?|pwd)[:\s]+([a-zA-Z0-9_.@\-!#%]+)", clean, re.I)
+        if p_match:
+            password = p_match.group(1).strip()
+        s_match = re.search(r"(?:server(?:_url)?|portal|url)[:\s]+(https?://[^\s,;]+|[a-zA-Z0-9.\-]+:\d+)", clean, re.I)
+        if s_match:
+            server_url = s_match.group(1).strip()
 
         if self.crm and hasattr(self.crm, "confirm_payment_and_convert"):
             customer = self.crm.confirm_payment_and_convert(
                 wa_id=target_wa,
                 payment_id=f"PAY-ADM-{int(time.time())}",
                 verified_by="admin_whatsapp",
+                account_username=username,
+                account_password=password,
+                server_url=server_url,
             )
             if customer:
                 if self.store:
                     self.store.set_customer_flag(target_wa, True, customer.customer_id)
                     self.store.set_handoff(target_wa, False)
+
+                cred_line = ""
+                if customer.account_username:
+                    cred_line = (
+                        f"\n• IPTV Username: `{customer.account_username}`\n"
+                        f"• IPTV Password: `{customer.account_password}`\n"
+                        f"• Server URL: `{customer.server_url or 'Default'}`\n\n"
+                        f"💡 To send login details to customer via WhatsApp:\n`ADMIN SEND CREDENTIALS {target_wa}`"
+                    )
+                else:
+                    cred_line = (
+                        f"\n\n💡 To set customer IPTV credentials:\n`ADMIN CREDENTIALS {target_wa} <username> <password>`"
+                    )
+
                 return (
                     f"✅ *Payment Confirmed & Subscriber Activated!*\n\n"
                     f"• Customer: {customer.name} ({target_wa})\n"
                     f"• ID: `{customer.customer_id}`\n"
                     f"• Duration: {customer.subscription_months} month(s)\n"
-                    f"• Expiry: {customer.subscription_expires_at}\n"
+                    f"• Expiry: {customer.subscription_expires_at}{cred_line}\n"
                     f"• Synced to Lark Base `03_Customers` and `05_Subscriptions`."
                 )
 

@@ -218,3 +218,42 @@ def test_customer_credentials_inquiry_flow(tmp_path):
     assert any("aminata_iptv" in r for r in bot_replies)
     assert any("tvpassword123" in r for r in bot_replies)
     assert any("http://stream.nexglotv.com:8080" in r for r in bot_replies)
+from app.crm_sheets import LeadRecord
+
+def test_admin_verify_with_credentials(tmp_path):
+    db_file = str(tmp_path / "test_verify_creds.sqlite")
+    settings = Settings(
+        admin_token="test_admin_token",
+        admin_phone_numbers="23276000000",
+        auto_reply_mode="all",
+    )
+    services = build_services(settings, db_path=db_file)
+    admin_bot = services.admin_bot
+    crm = services.crm
+
+    # Seed lead
+    lead = LeadRecord(
+        lead_id="LEAD-TEST-VERIFY",
+        wa_id="+23276554422",
+        phone_e164="+23276554422",
+        name="Kadiatu Bangura",
+        months=1,
+        device_count=1,
+        subscription_quote_le=180,
+    )
+    crm.provider.upsert_lead(lead)
+
+    # Admin verifies payment with credentials
+    res = admin_bot._execute_admin_command(
+        None,
+        "ADMIN VERIFY 076554422 user: kadiatu99 pass: secret777 server: http://stream.nexglotv.com:8080",
+    )
+    assert "Payment Confirmed & Subscriber Activated!" in res
+    assert "kadiatu99" in res
+    assert "secret777" in res
+
+    cust = admin_bot._get_customer("+23276554422")
+    assert cust is not None
+    assert cust.account_username == "kadiatu99"
+    assert cust.account_password == "secret777"
+    assert cust.server_url == "http://stream.nexglotv.com:8080"

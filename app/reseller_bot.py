@@ -1066,7 +1066,7 @@ def parse_direct_sale_text(text: str, is_renewal: bool = False) -> Optional[dict
 
     # 6. Extract Credentials if present
     username = ""
-    u_match = re.search(r"(?:user(?:name)?|acc(?:ount)?|iptv_user)[:\s]+([a-zA-Z0-9_.@\-]+)", clean, re.I)
+    u_match = re.search(r"(?:user(?:name)?|acc(?:ount)?|iptv_user|login)[:\s]+([a-zA-Z0-9_.@\-]+)", clean, re.I)
     if u_match:
         username = u_match.group(1).strip()
 
